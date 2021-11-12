@@ -15,7 +15,7 @@ jobs:
       - name: "Send repository dispatch event"
         uses: actions/github-script@v5
         with:
-          github-token: ${{ secrets.NOTIFY_GH_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const pr = context.payload.pull_request;
             console.log({
