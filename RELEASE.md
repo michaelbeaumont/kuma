@@ -2,6 +2,7 @@
 
 ## The `master` branch
 
+Test
 The `master` branch is where the active Kuma development happens. This is where all the new features, critical and minor fixes get accepted. Branch from this one when starting to work on a new PR.
 
 ## Release branches
