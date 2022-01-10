@@ -15,6 +15,7 @@ import (
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
+	system_proto "github.com/kumahq/kuma/api/system/v1alpha1"
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	"github.com/kumahq/kuma/pkg/core/resources/manager"
 	"github.com/kumahq/kuma/pkg/core/resources/model"
@@ -64,7 +65,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req kube_ctrl.Request
 	resource := core_mesh.NewGatewayResource()
 
 	if err := manager.Upsert(r.ResourceManager, model.ResourceKey{Mesh: mesh, Name: coreName}, resource, func(resource model.Resource) error {
-		gatewaySpec, err := r.gapiToKumaGateway(gateway)
+		gatewaySpec, err := r.gapiToKumaGateway(ctx, gateway)
 		if err != nil {
 			return errors.Wrap(err, "could not create Kuma Gateway spec")
 		}
@@ -109,7 +110,7 @@ func (r *GatewayReconciler) createOrUpdateInstance(ctx context.Context, gateway 
 	return instance, nil
 }
 
-func (r *GatewayReconciler) gapiToKumaGateway(gateway *gatewayapi.Gateway) (*mesh_proto.Gateway, error) {
+func (r *GatewayReconciler) gapiToKumaGateway(ctx context.Context, gateway *gatewayapi.Gateway) (*mesh_proto.Gateway, error) {
 	var listeners []*mesh_proto.Gateway_Listener
 
 	for _, l := range gateway.Spec.Listeners {
@@ -133,6 +134,33 @@ func (r *GatewayReconciler) gapiToKumaGateway(gateway *gatewayapi.Gateway) (*mes
 			listener.Hostname = string(*l.Hostname)
 		}
 
+		if l.TLS != nil {
+			tls := mesh_proto.Gateway_TLS_Conf{}
+			switch string(*l.TLS.Mode) {
+			case string(gatewayapi.TLSModeTerminate):
+				tls.Mode = mesh_proto.Gateway_TLS_TERMINATE
+			case string(gatewayapi.TLSModePassthrough):
+				tls.Mode = mesh_proto.Gateway_TLS_PASSTHROUGH
+			default:
+				// TODO return invalid condition here when status PR #3609 merged
+			}
+
+			for _, ref := range l.TLS.CertificateRefs {
+				// TODO we can only support kuma-system secrets right now...
+				if ref.Namespace == nil || *ref.Namespace != gatewayapi.Namespace(r.SystemNamespace) {
+					continue
+				}
+				ds := system_proto.DataSource{
+					Type: &system_proto.DataSource_Secret{
+						Secret: string(ref.Name),
+					},
+				}
+				// TODO return invalid condition if GroupKind is unexpected
+				tls.Certificates = append(tls.Certificates, &ds)
+			}
+
+			listener.Tls = &tls
+		}
 		listeners = append(listeners, listener)
 	}
 
