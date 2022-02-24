@@ -2,10 +2,10 @@ apiVersion: v1
 entries:
   kuma:
   - apiVersion: v2
-    appVersion: 1.5.0
-    created: "2022-02-24T14:44:37.377626774Z"
+    appVersion: dev-d5617ac40
+    created: "2022-02-24T16:39:15.589105074Z"
     description: A Helm chart for the Kuma Control Plane
-    digest: 408027826a049871160c082b3b05d44aed8fc6f8c0cfbea19266e0466da0fa82
+    digest: 320f678c4daaff02186564984bd23735ffbd361cae881fe18ce0061fe8ef8c7f
     home: https://github.com/kumahq/kuma
     icon: https://kuma.io/images/brand/kuma-logo-new.svg
     keywords:
@@ -23,4 +23,4 @@ entries:
     urls:
     - https://github.com/michaelbeaumont/kuma/releases/download/kuma-0.9.2/kuma-0.9.2.tgz
     version: 0.9.2
-generated: "2022-02-24T14:44:37.377820095Z"
+generated: "2022-02-24T16:39:15.589449472Z"
