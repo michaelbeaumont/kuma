@@ -1,21 +1,24 @@
 package tokens_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"time"
 
 	"github.com/emicklei/go-restful"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
 
 	kumactl_client "github.com/kumahq/kuma/app/kumactl/pkg/client"
 	"github.com/kumahq/kuma/app/kumactl/pkg/tokens"
 	config_kumactl "github.com/kumahq/kuma/pkg/config/app/kumactl/v1alpha1"
+	core_tokens "github.com/kumahq/kuma/pkg/core/tokens"
 	"github.com/kumahq/kuma/pkg/tokens/builtin/access"
 	"github.com/kumahq/kuma/pkg/tokens/builtin/issuer"
 	tokens_server "github.com/kumahq/kuma/pkg/tokens/builtin/server"
+	zone_access "github.com/kumahq/kuma/pkg/tokens/builtin/zone/access"
 )
 
 type staticTokenIssuer struct {
@@ -23,12 +26,8 @@ type staticTokenIssuer struct {
 
 var _ issuer.DataplaneTokenIssuer = &staticTokenIssuer{}
 
-func (s *staticTokenIssuer) Generate(identity issuer.DataplaneIdentity) (issuer.Token, error) {
+func (s *staticTokenIssuer) Generate(ctx context.Context, identity issuer.DataplaneIdentity, validFor time.Duration) (core_tokens.Token, error) {
 	return fmt.Sprintf("token-for-%s-%s", identity.Name, identity.Mesh), nil
-}
-
-func (s *staticTokenIssuer) Validate(token issuer.Token, meshName string) (issuer.DataplaneIdentity, error) {
-	return issuer.DataplaneIdentity{}, errors.New("not implemented")
 }
 
 var _ = Describe("Tokens Client", func() {
@@ -37,7 +36,13 @@ var _ = Describe("Tokens Client", func() {
 
 	BeforeEach(func() {
 		container := restful.NewContainer()
-		container.Add(tokens_server.NewWebservice(&staticTokenIssuer{}, &zoneIngressStaticTokenIssuer{}, access.NoopDpTokenAccess{}))
+		container.Add(tokens_server.NewWebservice(
+			&staticTokenIssuer{},
+			&zoneIngressStaticTokenIssuer{},
+			&zoneStaticTokenIssuer{},
+			access.NoopDpTokenAccess{},
+			zone_access.NoopZoneTokenAccess{},
+		))
 		server = httptest.NewServer(container.ServeMux)
 	})
 
@@ -49,18 +54,18 @@ var _ = Describe("Tokens Client", func() {
 		// given
 		baseClient, err := kumactl_client.ApiServerClient(&config_kumactl.ControlPlaneCoordinates_ApiServer{
 			Url: server.URL,
-		})
+		}, time.Second)
 		Expect(err).ToNot(HaveOccurred())
 		client := tokens.NewDataplaneTokenClient(baseClient)
 
 		// wait for server
 		Eventually(func() error {
-			_, err := client.Generate("example", "default", nil, "dataplane")
+			_, err := client.Generate("example", "default", nil, "dataplane", 24*time.Hour)
 			return err
 		}, "5s", "100ms").ShouldNot(HaveOccurred())
 
 		// when
-		token, err := client.Generate("example", "default", nil, "dataplane")
+		token, err := client.Generate("example", "default", nil, "dataplane", 24*time.Hour)
 
 		// then
 		Expect(err).ToNot(HaveOccurred())
@@ -80,13 +85,13 @@ var _ = Describe("Tokens Client", func() {
 		})
 		baseClient, err := kumactl_client.ApiServerClient(&config_kumactl.ControlPlaneCoordinates_ApiServer{
 			Url: server.URL,
-		})
+		}, time.Second)
 		Expect(err).ToNot(HaveOccurred())
 		client := tokens.NewDataplaneTokenClient(baseClient)
 		Expect(err).ToNot(HaveOccurred())
 
 		// when
-		_, err = client.Generate("example", "default", nil, "dataplane")
+		_, err = client.Generate("example", "default", nil, "dataplane", 24*time.Hour)
 
 		// then
 		Expect(err).To(MatchError("(500): Internal Server Error"))

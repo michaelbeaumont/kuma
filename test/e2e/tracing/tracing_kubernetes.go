@@ -6,7 +6,7 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,17 +18,6 @@ import (
 )
 
 func TracingK8S() {
-	namespaceWithSidecarInjection := func(namespace string) string {
-		return fmt.Sprintf(`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: %s
-  annotations:
-    kuma.io/sidecar-injection: "enabled"
-`, namespace)
-	}
-
 	meshWithTracing := func(zipkinURL string) string {
 		return fmt.Sprintf(`
 apiVersion: kuma.io/v1alpha1
@@ -60,15 +49,12 @@ spec:
 `
 
 	var cluster Cluster
-	var deployOptsFuncs = KumaK8sDeployOpts
 
 	BeforeEach(func() {
-		c, err := NewK8SCluster(NewTestingT(), Kuma1, Silent)
-		Expect(err).ToNot(HaveOccurred())
-		cluster = c
-		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, deployOptsFuncs...)).
-			Install(YamlK8s(namespaceWithSidecarInjection(TestNamespace))).
+		cluster = NewK8sCluster(NewTestingT(), Kuma1, Silent)
+		err := NewClusterSetup().
+			Install(Kuma(core.Standalone)).
+			Install(NamespaceWithSidecarInjection(TestNamespace)).
 			Install(DemoClientK8s("default")).
 			Install(testserver.Install()).
 			Install(tracing.Install()).
@@ -76,11 +62,8 @@ spec:
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	AfterEach(func() {
-		if ShouldSkipCleanup() {
-			return
-		}
-		Expect(cluster.DeleteKuma(deployOptsFuncs...)).To(Succeed())
+	E2EAfterEach(func() {
+		Expect(cluster.DeleteKuma()).To(Succeed())
 		Expect(cluster.DeleteNamespace(TestNamespace)).To(Succeed())
 		Expect(cluster.DismissCluster()).To(Succeed())
 	})

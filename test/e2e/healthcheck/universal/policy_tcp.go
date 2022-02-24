@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	config_core "github.com/kumahq/kuma/pkg/config/core"
@@ -48,11 +48,9 @@ conf:
 		cluster = NewUniversalCluster(NewTestingT(), Kuma3, Verbose)
 
 		err := NewClusterSetup().
-			Install(Kuma(config_core.Standalone, KumaUniversalDeployOpts...)).
+			Install(Kuma(config_core.Standalone)).
 			Install(YamlUniversal(healthCheck("foo", "bar"))).
 			Setup(cluster)
-		Expect(err).ToNot(HaveOccurred())
-		err = cluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		demoClientToken, err := cluster.GetKuma().GenerateDpToken("default", "dp-demo-client")
@@ -73,7 +71,7 @@ conf:
 		if ShouldSkipCleanup() {
 			return
 		}
-		Expect(cluster.DeleteKuma(KumaUniversalDeployOpts...)).To(Succeed())
+		Expect(cluster.DeleteKuma()).To(Succeed())
 		Expect(cluster.DismissCluster()).To(Succeed())
 	})
 
@@ -90,7 +88,7 @@ conf:
 
 		// wait cluster 'test-server' to be marked as unhealthy
 		Eventually(func() bool {
-			cmd := []string{"/bin/bash", "-c", "\"curl localhost:30001/clusters | grep test-server\""}
+			cmd := []string{"/bin/bash", "-c", "\"curl localhost:9901/clusters | grep test-server\""}
 			stdout, _, err := cluster.ExecWithRetries("", "", "dp-demo-client", cmd...)
 			if err != nil {
 				return false

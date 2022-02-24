@@ -1,8 +1,7 @@
 package mesh_test
 
 import (
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 
 	. "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	"github.com/kumahq/kuma/pkg/core/resources/model"
@@ -10,10 +9,10 @@ import (
 	_ "github.com/kumahq/kuma/pkg/plugins/runtime/gateway/register"
 )
 
-// GatewayRouteGenerator is a ResourceGenerator that creates GatewayResource objects.
-type GatewayRouteGenerator func() *GatewayRouteResource
+// MeshGatewayRouteGenerator is a ResourceGenerator that creates MeshGatewayResource objects.
+type MeshGatewayRouteGenerator func() *MeshGatewayRouteResource
 
-func (g GatewayRouteGenerator) New() model.Resource {
+func (g MeshGatewayRouteGenerator) New() model.Resource {
 	if g != nil {
 		return g()
 	}
@@ -21,11 +20,11 @@ func (g GatewayRouteGenerator) New() model.Resource {
 	return nil
 }
 
-var _ = Describe("GatewayRoute", func() {
-	DescribeValidCases(GatewayRouteGenerator(NewGatewayRouteResource),
+var _ = Describe("MeshGatewayRoute", func() {
+	DescribeValidCases(MeshGatewayRouteGenerator(NewMeshGatewayRouteResource),
 
 		Entry("HTTP route", `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -80,7 +79,7 @@ conf:
           kuma.io/service: target-2
 `),
 		Entry("HTTP redirect", `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -116,12 +115,12 @@ conf:
 `),
 	)
 
-	DescribeErrorCases(GatewayRouteGenerator(NewGatewayRouteResource),
+	DescribeErrorCases(MeshGatewayRouteGenerator(NewMeshGatewayRouteResource),
 		ErrorCase("missing conf", validators.Violation{
 			Field:   "conf",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -132,7 +131,7 @@ selectors:
 			Field:   "conf.http.rules",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -146,7 +145,7 @@ conf:
 			Field:   "conf.http.rules[0].matches",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -164,7 +163,7 @@ conf:
 			Field:   "conf.http.rules[0].backends",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -182,7 +181,7 @@ conf:
 			Field:   "conf.http.rules[0].backends[0]",
 			Message: `mandatory tag "kuma.io/service" is missing`,
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -204,7 +203,7 @@ conf:
 			Field:   "conf.http.rules[0].matches[0]",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -224,7 +223,7 @@ conf:
 			Field:   "conf.http.rules[0].matches[0].value",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -245,7 +244,7 @@ conf:
 			Field:   "conf.http.rules[0].matches[0].value",
 			Message: "must be an absolute path",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -266,7 +265,7 @@ conf:
 			Field:   "conf.http.rules[0].matches[0].headers[0].name",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -287,7 +286,7 @@ conf:
 			Field:   "conf.http.rules[0].matches[0].headers[0].value",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -308,7 +307,7 @@ conf:
 			Field:   "conf.http.rules[0].matches[0].query_parameters[0].name",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -329,7 +328,7 @@ conf:
 			Field:   "conf.http.rules[0].matches[0].query_parameters[0].value",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -350,7 +349,7 @@ conf:
 			Field:   "conf.http.rules[0].filters[0].request_header",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -373,7 +372,7 @@ conf:
 			Field:   "conf.http.rules[0].filters[0].request_header.set[0].value",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -403,7 +402,7 @@ conf:
 			Field:   "conf.http.rules[0].filters[0].request_header.add[0].name",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -433,7 +432,7 @@ conf:
 			Field:   "conf.http.rules[0].filters[0].request_header.remove[0]",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -464,7 +463,7 @@ conf:
 			Field:   "conf.http.rules[0].filters[0].mirror.backend",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -488,7 +487,7 @@ conf:
 			Field:   "conf.http.rules[0].filters[0].mirror.percentage",
 			Message: "has to be in [0.0 - 100.0] range",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -515,7 +514,7 @@ conf:
 			Field:   "conf.http.rules[0].filters[0].redirect.scheme",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -536,7 +535,7 @@ conf:
 			Field:   "conf.http.rules[0].filters[0].redirect.hostname",
 			Message: "cannot be empty",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -557,7 +556,7 @@ conf:
 			Field:   "conf.http.rules[0].filters[0].redirect.port",
 			Message: "port must be in the range [1, 65535]",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -580,7 +579,7 @@ conf:
 			Field:   "conf.http.rules[0].filters[0].redirect.status_code",
 			Message: "must be in the range [300, 308]",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -602,7 +601,7 @@ conf:
 			Field:   "conf.http.rules[0].backends",
 			Message: "must be empty when using redirect filters",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:
@@ -628,7 +627,7 @@ conf:
 			Field:   "conf.http.rules[0].filters",
 			Message: "redirects cannot be used with other filters",
 		}, `
-type: GatewayRoute
+type: MeshGatewayRoute
 name: route
 mesh: default
 selectors:

@@ -2,12 +2,10 @@ package yaml_test
 
 import (
 	"bytes"
-	"io/ioutil"
 	"path/filepath"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -15,6 +13,7 @@ import (
 	"github.com/kumahq/kuma/app/kumactl/pkg/output/yaml"
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	core_rest "github.com/kumahq/kuma/pkg/core/resources/model/rest"
+	. "github.com/kumahq/kuma/pkg/test/matchers"
 )
 
 var _ = Describe("printer", func() {
@@ -39,14 +38,8 @@ var _ = Describe("printer", func() {
 			err := printer.Print(given.obj, buf)
 			// then
 			Expect(err).ToNot(HaveOccurred())
-
-			// when
-			expected, err := ioutil.ReadFile(filepath.Join("testdata", given.goldenFile))
-			// then
-			Expect(err).ToNot(HaveOccurred())
-
 			// and
-			Expect(buf.String()).To(Equal(string(expected)))
+			Expect(buf.String()).To(MatchGoldenYAML(filepath.Join("testdata", given.goldenFile)))
 		},
 		Entry("format `nil` value", testCase{
 			obj:        nil,

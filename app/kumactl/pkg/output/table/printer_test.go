@@ -2,11 +2,10 @@ package table_test
 
 import (
 	"bytes"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/app/kumactl/pkg/output/table"
@@ -35,7 +34,7 @@ var _ = Describe("printer", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// when
-			expected, err := ioutil.ReadFile(filepath.Join("testdata", given.goldenFile))
+			expected, err := os.ReadFile(filepath.Join("testdata", given.goldenFile))
 			// then
 			Expect(err).ToNot(HaveOccurred())
 

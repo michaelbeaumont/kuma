@@ -3,72 +3,65 @@ package universal_standalone
 import (
 	"fmt"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"github.com/pkg/errors"
 
 	"github.com/kumahq/kuma/pkg/config/core"
-	. "github.com/kumahq/kuma/test/e2e/trafficroute/testutil"
 	. "github.com/kumahq/kuma/test/framework"
+	. "github.com/kumahq/kuma/test/framework/client"
 )
 
+const defaultMesh = "default"
+
+var universal Cluster
+
+var _ = E2EBeforeSuite(func() {
+	clusters, err := NewUniversalClusters([]string{Kuma3}, Verbose)
+	Expect(err).ToNot(HaveOccurred())
+
+	universal = clusters.GetCluster(Kuma3)
+
+	Expect(NewClusterSetup().
+		Install(Kuma(core.Standalone)).
+		Setup(universal)).To(Succeed())
+
+	testServerToken, err := universal.GetKuma().GenerateDpToken(defaultMesh, "test-server")
+	Expect(err).ToNot(HaveOccurred())
+	anotherTestServerToken, err := universal.GetKuma().GenerateDpToken(defaultMesh, "another-test-server")
+	Expect(err).ToNot(HaveOccurred())
+	demoClientToken, err := universal.GetKuma().GenerateDpToken(defaultMesh, "demo-client")
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(NewClusterSetup().
+		Install(TestServerUniversal("dp-echo-1", defaultMesh, testServerToken,
+			WithArgs([]string{"echo", "--instance", "echo-v1"}),
+			WithServiceVersion("v1"),
+		)).
+		Install(TestServerUniversal("dp-echo-2", defaultMesh, testServerToken,
+			WithArgs([]string{"echo", "--instance", "echo-v2"}),
+			WithServiceVersion("v2"),
+		)).
+		Install(TestServerUniversal("dp-echo-3", defaultMesh, testServerToken,
+			WithArgs([]string{"echo", "--instance", "echo-v3"}),
+			WithServiceVersion("v3"),
+		)).
+		Install(TestServerUniversal("dp-echo-4", defaultMesh, testServerToken,
+			WithArgs([]string{"echo", "--instance", "echo-v4"}),
+			WithServiceVersion("v4"),
+		)).
+		Install(TestServerUniversal("dp-another-test", defaultMesh, anotherTestServerToken,
+			WithArgs([]string{"echo", "--instance", "another-test-server"}),
+			WithServiceName("another-test-server"),
+		)).
+		Install(DemoClientUniversal(AppModeDemoClient, defaultMesh, demoClientToken, WithTransparentProxy(true))).
+		Setup(universal)).To(Succeed())
+
+	E2EDeferCleanup(universal.DismissCluster)
+})
+
 func KumaStandalone() {
-	const defaultMesh = "default"
-
-	var universal Cluster
-
-	E2EBeforeSuite(func() {
-		clusters, err := NewUniversalClusters([]string{Kuma3}, Verbose)
-		Expect(err).ToNot(HaveOccurred())
-
-		universal = clusters.GetCluster(Kuma3)
-
-		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, KumaUniversalDeployOpts...)).
-			Setup(universal)
-		Expect(err).ToNot(HaveOccurred())
-		err = universal.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
-
-		testServerToken, err := universal.GetKuma().GenerateDpToken(defaultMesh, "test-server")
-		Expect(err).ToNot(HaveOccurred())
-		anotherTestServerToken, err := universal.GetKuma().GenerateDpToken(defaultMesh, "another-test-server")
-		Expect(err).ToNot(HaveOccurred())
-		demoClientToken, err := universal.GetKuma().GenerateDpToken(defaultMesh, "demo-client")
-		Expect(err).ToNot(HaveOccurred())
-
-		err = NewClusterSetup().
-			Install(TestServerUniversal("dp-echo-1", defaultMesh, testServerToken,
-				WithArgs([]string{"echo", "--instance", "echo-v1"}),
-				WithServiceVersion("v1"),
-			)).
-			Install(TestServerUniversal("dp-echo-2", defaultMesh, testServerToken,
-				WithArgs([]string{"echo", "--instance", "echo-v2"}),
-				WithServiceVersion("v2"),
-			)).
-			Install(TestServerUniversal("dp-echo-3", defaultMesh, testServerToken,
-				WithArgs([]string{"echo", "--instance", "echo-v3"}),
-				WithServiceVersion("v3"),
-			)).
-			Install(TestServerUniversal("dp-echo-4", defaultMesh, testServerToken,
-				WithArgs([]string{"echo", "--instance", "echo-v4"}),
-				WithServiceVersion("v4"),
-			)).
-			Install(TestServerUniversal("dp-another-test", defaultMesh, anotherTestServerToken,
-				WithArgs([]string{"echo", "--instance", "another-test-server"}),
-				WithServiceName("another-test-server"),
-			)).
-			Install(DemoClientUniversal(AppModeDemoClient, defaultMesh, demoClientToken, WithTransparentProxy(true))).
-			Setup(universal)
-		Expect(err).ToNot(HaveOccurred())
-	})
-
-	E2EAfterSuite(func() {
-		Expect(universal.DeleteKuma()).To(Succeed())
-		Expect(universal.DismissCluster()).To(Succeed())
-	})
-
 	E2EAfterEach(func() {
 		// remove all TrafficRoutes
 		items, err := universal.GetKumactlOptions().KumactlList("traffic-routes", "default")
@@ -189,8 +182,8 @@ conf:
 		}, "30s", "500ms").Should(
 			And(
 				HaveLen(2),
-				HaveKeyWithValue(Equal(`echo-v1`), ApproximatelyEqual(v1Weight, 1)),
-				HaveKeyWithValue(Equal(`echo-v2`), ApproximatelyEqual(v2Weight, 1)),
+				HaveKeyWithValue(Equal(`echo-v1`), BeNumerically("~", v1Weight, 1)),
+				HaveKeyWithValue(Equal(`echo-v2`), BeNumerically("~", v2Weight, 1)),
 			),
 		)
 	})
@@ -356,8 +349,8 @@ conf:
 			}, "30s", "500ms").Should(
 				And(
 					HaveLen(2),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), ApproximatelyEqual(5, 1)),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), ApproximatelyEqual(5, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), BeNumerically("~", 5, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), BeNumerically("~", 5, 1)),
 				),
 			)
 
@@ -366,8 +359,8 @@ conf:
 			}, "30s", "500ms").Should(
 				And(
 					HaveLen(2),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v3.*`), ApproximatelyEqual(5, 1)),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v4.*`), ApproximatelyEqual(5, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v3.*`), BeNumerically("~", 5, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v4.*`), BeNumerically("~", 5, 1)),
 				),
 			)
 		})
@@ -416,8 +409,8 @@ conf:
 			}, "30s", "500ms").Should(
 				And(
 					HaveLen(2),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), ApproximatelyEqual(5, 1)),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), ApproximatelyEqual(5, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), BeNumerically("~", 5, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), BeNumerically("~", 5, 1)),
 				),
 			)
 
@@ -426,8 +419,8 @@ conf:
 			}, "30s", "500ms").Should(
 				And(
 					HaveLen(2),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), ApproximatelyEqual(2, 1)),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), ApproximatelyEqual(8, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), BeNumerically("~", 2, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), BeNumerically("~", 8, 1)),
 				),
 			)
 		})

@@ -1,17 +1,15 @@
 package generator_test
 
 import (
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	"github.com/kumahq/kuma/pkg/core/xds"
 	. "github.com/kumahq/kuma/pkg/test/matchers"
-	"github.com/kumahq/kuma/pkg/test/runtime"
 	"github.com/kumahq/kuma/pkg/tls"
 	util_proto "github.com/kumahq/kuma/pkg/util/proto"
 	"github.com/kumahq/kuma/pkg/xds/context"
@@ -33,7 +31,7 @@ var _ = Describe("AdminProxyGenerator", func() {
 
 			// dataplane
 			dataplane := core_mesh.NewDataplaneResource()
-			bytes, err := ioutil.ReadFile(filepath.Join("testdata", "admin", given.dataplaneFile))
+			bytes, err := os.ReadFile(filepath.Join("testdata", "admin", given.dataplaneFile))
 			Expect(err).ToNot(HaveOccurred())
 			parseResource(bytes, dataplane)
 
@@ -44,8 +42,7 @@ var _ = Describe("AdminProxyGenerator", func() {
 						KeyPEM:  []byte("LS0=="),
 					},
 				},
-				Mesh:             context.MeshContext{},
-				EnvoyAdminClient: &runtime.DummyEnvoyAdminClient{},
+				Mesh: context.MeshContext{},
 			}
 
 			proxy := &xds.Proxy{

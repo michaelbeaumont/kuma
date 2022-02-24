@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"net"
+	"strconv"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
@@ -94,11 +95,7 @@ func (d *DataplaneResource) UsesOutboundInterface(address net.IP, port uint32) b
 	if d == nil {
 		return false
 	}
-	ofaces, err := d.Spec.Networking.GetOutboundInterfaces()
-	if err != nil {
-		return false
-	}
-	for _, oface := range ofaces {
+	for _, oface := range d.Spec.Networking.GetOutboundInterfaces() {
 		// compare against port and IP address of the dataplane
 		if port == oface.DataplanePort && overlap(address, net.ParseIP(oface.DataplaneIP)) {
 			return true
@@ -158,4 +155,16 @@ func (d *DataplaneResource) IsIPv6() bool {
 	}
 
 	return ip.To4() == nil
+}
+
+func (d *DataplaneResource) AdminAddress(defaultAdminPort uint32) string {
+	if d == nil {
+		return ""
+	}
+	ip := d.GetIP()
+	adminPort := d.Spec.GetNetworking().GetAdmin().GetPort()
+	if adminPort == 0 {
+		adminPort = defaultAdminPort
+	}
+	return net.JoinHostPort(ip, strconv.FormatUint(uint64(adminPort), 10))
 }

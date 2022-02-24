@@ -116,6 +116,10 @@ Listeners:
               initialStreamWindowSize: 65536
               maxConcurrentStreams: 100
             httpFilters:
+            - name: envoy.filters.http.local_ratelimit
+              typedConfig:
+                '@type': type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                statPrefix: rate_limit
             - name: gzip-compress
               typedConfig:
                 '@type': type.googleapis.com/envoy.extensions.filters.http.compressor.v3.Compressor
@@ -172,7 +176,7 @@ Routes:
       virtualHosts:
       - domains:
         - echo.example.com
-        name: edge-gateway:HTTPS:8080:echo.example.com
+        name: echo.example.com
         requireTls: ALL
         responseHeadersToAdd:
         - append: false
@@ -190,7 +194,16 @@ Routes:
               safeRegexMatch:
                 googleRe2: {}
                 regex: .*sh
+            prefix: /
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 15s
             weightedClusters:
               clusters:
               - name: regex-header-match-ad0dd92f37b8a38d
@@ -200,7 +213,16 @@ Routes:
             headers:
             - exactMatch: application/json
               name: Content-Type
+            prefix: /
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 15s
             weightedClusters:
               clusters:
               - name: exact-header-match-f6b57a6b55557c81
@@ -210,7 +232,16 @@ Routes:
             headers:
             - exactMatch: gibberish
               name: Language
+            prefix: /
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 15s
             weightedClusters:
               clusters:
               - name: exact-header-match-f6b57a6b55557c81

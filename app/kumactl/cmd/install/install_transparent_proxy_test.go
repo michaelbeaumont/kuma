@@ -3,12 +3,11 @@ package install_test
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"regexp"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/util/test"
@@ -45,7 +44,7 @@ var _ = Describe("kumactl install tracing", func() {
 			Expect(stderr.String()).To(BeEmpty())
 
 			// when
-			regex, err := ioutil.ReadFile(filepath.Join("testdata", given.goldenFile))
+			regex, err := os.ReadFile(filepath.Join("testdata", given.goldenFile))
 			// then
 			Expect(err).ToNot(HaveOccurred())
 			// and
@@ -69,7 +68,7 @@ var _ = Describe("kumactl install tracing", func() {
 			},
 			goldenFile: "install-transparent-proxy.defaults.golden.txt",
 		}),
-		Entry("should generate defaults with user id and DNS redirected ", testCase{
+		Entry("should generate defaults with user id and DNS redirected", testCase{
 			extraArgs: []string{
 				"--kuma-dp-uid", "0",
 				"--kuma-cp-ip", "1.2.3.4",
@@ -77,6 +76,18 @@ var _ = Describe("kumactl install tracing", func() {
 				"--redirect-all-dns-traffic",
 				"--redirect-dns-port", "12345",
 				"--redirect-dns-upstream-target-chain", "DOCKER_OUTPUT",
+			},
+			goldenFile: "install-transparent-proxy.dns.golden.txt",
+		}),
+		Entry("should generate defaults with user id and DNS redirected without conntrack zone splitting", testCase{
+			extraArgs: []string{
+				"--kuma-dp-uid", "0",
+				"--kuma-cp-ip", "1.2.3.4",
+				"--skip-resolv-conf",
+				"--redirect-all-dns-traffic",
+				"--redirect-dns-port", "12345",
+				"--redirect-dns-upstream-target-chain", "DOCKER_OUTPUT",
+				"--skip-dns-conntrack-zone-split",
 			},
 			goldenFile: "install-transparent-proxy.dns.golden.txt",
 		}),

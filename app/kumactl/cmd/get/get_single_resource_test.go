@@ -7,8 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/spf13/cobra"
 
@@ -47,7 +46,7 @@ var _ = Describe("kumactl get [resource] NAME", func() {
 			Runtime: kumactl_cmd.RootRuntime{
 				Registry: registry.Global(),
 				Now:      func() time.Time { return rootTime },
-				NewBaseAPIServerClient: func(server *config_proto.ControlPlaneCoordinates_ApiServer) (util_http.Client, error) {
+				NewBaseAPIServerClient: func(server *config_proto.ControlPlaneCoordinates_ApiServer, _ time.Duration) (util_http.Client, error) {
 					return nil, nil
 				},
 				NewResourceStore: func(util_http.Client) core_store.ResourceStore {
@@ -103,7 +102,7 @@ var _ = Describe("kumactl get [resource] NAME", func() {
 			Expect(err.Error()).To(Equal("accepts 1 arg(s), received 0"))
 			Expect(outbuf.String()).To(MatchRegexp(`Error: accepts 1 arg\(s\), received 0`))
 		},
-		entries...,
+		entries,
 	)
 
 	DescribeTable("should return error message if doesn't exist",
@@ -124,7 +123,7 @@ var _ = Describe("kumactl get [resource] NAME", func() {
 				Expect(outbuf.String()).To(Equal("Error: No resources found in default mesh\n"))
 			}
 		},
-		entries...,
+		entries,
 	)
 
 	DescribeTable("kumactl get [resource] [name] -otable",
@@ -145,9 +144,9 @@ var _ = Describe("kumactl get [resource] NAME", func() {
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
-			Expect(outbuf.String()).To(MatchGoldenEqual(filepath.Join("testdata", resourceTable)))
+			Expect(outbuf.String()).To(MatchGoldenEqual("testdata", resourceTable))
 		},
-		entries...,
+		entries,
 	)
 
 	DescribeTable("kumactl get [resource] [name] -ojson",
@@ -168,9 +167,9 @@ var _ = Describe("kumactl get [resource] NAME", func() {
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
-			Expect(outbuf.String()).To(MatchGoldenEqual(filepath.Join("testdata", resourceJSON)))
+			Expect(outbuf.String()).To(MatchGoldenEqual("testdata", resourceJSON))
 		},
-		entries...,
+		entries,
 	)
 
 	DescribeTable("kumactl get [resource] [name] -oyaml",
@@ -188,8 +187,8 @@ var _ = Describe("kumactl get [resource] NAME", func() {
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
-			Expect(outbuf.String()).To(MatchGoldenEqual(filepath.Join("testdata", resourceYAML)))
+			Expect(outbuf.String()).To(MatchGoldenEqual("testdata", resourceYAML))
 		},
-		entries...,
+		entries,
 	)
 })

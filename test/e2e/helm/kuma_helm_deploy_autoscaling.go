@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/gruntwork-io/terratest/modules/random"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -18,31 +18,24 @@ func ControlPlaneAutoscalingWithHelmChart() {
 	minReplicas := 3
 
 	var cluster Cluster
-	var deployOptsFuncs = KumaK8sDeployOpts
 
 	BeforeEach(func() {
-		c, err := NewK8sClusterWithTimeout(
-			NewTestingT(),
-			Kuma1,
-			Silent,
-			6*time.Second)
-		Expect(err).ToNot(HaveOccurred())
-
-		cluster = c.WithRetries(60)
+		cluster = NewK8sCluster(NewTestingT(), Kuma1, Silent).
+			WithTimeout(6 * time.Second).
+			WithRetries(60)
 
 		releaseName := fmt.Sprintf(
 			"kuma-%s",
 			strings.ToLower(random.UniqueId()),
 		)
-		deployOptsFuncs = append(deployOptsFuncs,
-			WithInstallationMode(HelmInstallationMode),
-			WithHelmReleaseName(releaseName),
-			WithHelmOpt("controlPlane.autoscaling.enabled", "true"),
-			WithHelmOpt("controlPlane.autoscaling.minReplicas", strconv.Itoa(minReplicas)),
-			WithCNI())
-
-		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, deployOptsFuncs...)).
+		err := NewClusterSetup().
+			Install(Kuma(core.Standalone,
+				WithInstallationMode(HelmInstallationMode),
+				WithHelmReleaseName(releaseName),
+				WithHelmOpt("controlPlane.autoscaling.enabled", "true"),
+				WithHelmOpt("controlPlane.autoscaling.minReplicas", strconv.Itoa(minReplicas)),
+				WithCNI(),
+			)).
 			Setup(cluster)
 		Expect(err).ToNot(HaveOccurred())
 	})
@@ -52,7 +45,7 @@ func ControlPlaneAutoscalingWithHelmChart() {
 			return
 		}
 		// tear down Kuma
-		Expect(cluster.DeleteKuma(deployOptsFuncs...)).To(Succeed())
+		Expect(cluster.DeleteKuma()).To(Succeed())
 		// tear down cluster
 		Expect(cluster.DismissCluster()).To(Succeed())
 	})
@@ -62,7 +55,7 @@ func ControlPlaneAutoscalingWithHelmChart() {
 		k8sCluster := cluster.(*K8sCluster)
 
 		// when waiting for autoscaling
-		err := k8sCluster.WaitApp(KumaServiceName, KumaNamespace, minReplicas)
+		err := k8sCluster.WaitApp(Config.KumaServiceName, Config.KumaNamespace, minReplicas)
 
 		// then the min replicas should come up
 		Expect(err).ToNot(HaveOccurred())

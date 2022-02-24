@@ -79,6 +79,7 @@ kumactl install transparent-proxy [flags]
       --redirect-inbound-port networking.transparentProxying.redirectPortInbound        inbound port redirected to Envoy, as specified in dataplane's networking.transparentProxying.redirectPortInbound (default "15006")
       --redirect-inbound-port-v6 networking.transparentProxying.redirectPortInboundV6   IPv6 inbound port redirected to Envoy, as specified in dataplane's networking.transparentProxying.redirectPortInboundV6 (default "15010")
       --redirect-outbound-port networking.transparentProxying.redirectPortOutbound      outbound port redirected to Envoy, as specified in dataplane's networking.transparentProxying.redirectPortOutbound (default "15001")
+      --skip-dns-conntrack-zone-split                                                   skip applying conntrack zone splitting iptables rules
       --skip-resolv-conf /etc/resolv.conf                                               skip modifying the host /etc/resolv.conf
       --store-firewalld                                                                 store the iptables changes with firewalld
       --verbose                                                                         verbose
@@ -87,10 +88,11 @@ kumactl install transparent-proxy [flags]
 ### Options inherited from parent commands
 
 ```
-      --config-file string   path to the configuration file to use
-      --log-level string     log level: one of off|info|debug (default "off")
-  -m, --mesh string          mesh to use (default "default")
-      --no-config            if set no config file and config directory will be created
+      --api-timeout duration   the timeout for api calls. It includes connection time, any redirects, and reading the response body. A timeout of zero means no timeout (default 1m0s)
+      --config-file string     path to the configuration file to use
+      --log-level string       log level: one of off|info|debug (default "off")
+  -m, --mesh string            mesh to use (default "default")
+      --no-config              if set no config file and config directory will be created
 ```
 
 ### SEE ALSO

@@ -1,7 +1,7 @@
 package resilience
 
 import (
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -11,7 +11,6 @@ import (
 
 func ResilienceStandaloneUniversal() {
 	var universal Cluster
-	var optsUniversal = KumaUniversalDeployOpts
 
 	BeforeEach(func() {
 		clusters, err := NewUniversalClusters([]string{Kuma1}, Silent)
@@ -24,16 +23,12 @@ func ResilienceStandaloneUniversal() {
 			Setup(universal)
 		Expect(err).ToNot(HaveOccurred())
 
-		optsUniversal = []KumaDeploymentOption{
-			WithPostgres(postgres.From(universal, Kuma1).GetEnvVars()),
-			WithEnv("KUMA_METRICS_DATAPLANE_IDLE_TIMEOUT", "10s"),
-		}
-
 		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, optsUniversal...)).
+			Install(Kuma(core.Standalone,
+				WithPostgres(postgres.From(universal, Kuma1).GetEnvVars()),
+				WithEnv("KUMA_METRICS_DATAPLANE_IDLE_TIMEOUT", "10s"),
+			)).
 			Setup(universal)
-		Expect(err).ToNot(HaveOccurred())
-		err = universal.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		demoClientToken, err := universal.GetKuma().GenerateDpToken("default", "demo-client")
@@ -45,7 +40,7 @@ func ResilienceStandaloneUniversal() {
 	})
 
 	E2EAfterEach(func() {
-		Expect(universal.DeleteKuma(optsUniversal...)).To(Succeed())
+		Expect(universal.DeleteKuma()).To(Succeed())
 		Expect(universal.DismissCluster()).To(Succeed())
 	})
 

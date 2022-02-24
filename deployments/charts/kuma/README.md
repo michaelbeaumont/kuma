@@ -2,7 +2,7 @@
 
 A Helm chart for the Kuma Control Plane
 
-![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![Version: 0.8.0](https://img.shields.io/badge/Version-0.8.0-informational?style=flat-square) ![AppVersion: 1.4.0](https://img.shields.io/badge/AppVersion-1.4.0-informational?style=flat-square)
+![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![Version: 0.9.0](https://img.shields.io/badge/Version-0.9.0-informational?style=flat-square) ![AppVersion: 1.5.0](https://img.shields.io/badge/AppVersion-1.5.0-informational?style=flat-square)
 
 **Homepage:** <https://github.com/kumahq/kuma>
 
@@ -12,8 +12,10 @@ A Helm chart for the Kuma Control Plane
 |-----|------|---------|-------------|
 | global.image.registry | string | `"docker.io/kumahq"` | Default registry for all Kuma Images |
 | global.image.tag | string | `nil` | The default tag for all Kuma images, which itself defaults to .Chart.AppVersion |
-| patchSystemNamespace | bool | `true` | Whether or not to patch the target namespace with the system label |
-| installCrdsOnUpgrade | object | `{"enabled":true,"imagePullSecrets":[]}` | Whether ot not install new CRDs before upgrade  (if any were introduced    with the new version of Kuma) |
+| global.imagePullSecrets | list | `[]` | Add `imagePullSecrets` to all the service accounts used for Kuma components |
+| patchSystemNamespace | bool | `true` | Whether to patch the target namespace with the system label |
+| installCrdsOnUpgrade.enabled | bool | `true` | Whether install new CRDs before upgrade (if any were introduced with the new version of Kuma) |
+| installCrdsOnUpgrade.imagePullSecrets | list | `[]` | The `imagePullSecrets` to attach to the Service Account running CRD installation. This field will be deprecated in a future release, please use .global.imagePullSecrets |
 | controlPlane.logLevel | string | `"info"` | Kuma CP log level: one of off,info,debug |
 | controlPlane.mode | string | `"standalone"` | Kuma CP modes: one of standalone,zone,global |
 | controlPlane.zone | string | `nil` | Kuma CP zone, if running multizone |
@@ -25,7 +27,8 @@ A Helm chart for the Kuma Control Plane
 | controlPlane.autoscaling.targetCPUUtilizationPercentage | int | `80` | For clusters that don't support autoscaling/v2beta, autoscaling/v1 is used |
 | controlPlane.autoscaling.metrics | list | `[{"resource":{"name":"cpu","target":{"averageUtilization":80,"type":"Utilization"}},"type":"Resource"}]` | For clusters that do support autoscaling/v2beta, use metrics |
 | controlPlane.nodeSelector | object | `{"kubernetes.io/arch":"amd64","kubernetes.io/os":"linux"}` | Node selector for the Kuma Control Plane pods |
-| controlPlane.injectorFailurePolicy | string | `"Ignore"` | Failure policy of the mutating webhook implemented by the Kuma Injector component |
+| controlPlane.affinity | object | `{}` | Affinity placement rule for the Kuma Control Plane pods |
+| controlPlane.injectorFailurePolicy | string | `"Fail"` | Failure policy of the mutating webhook implemented by the Kuma Injector component |
 | controlPlane.service.name | string | `nil` | Optionally override of the Kuma Control Plane Service's name |
 | controlPlane.service.type | string | `"ClusterIP"` | Service type of the Kuma Control Plane |
 | controlPlane.service.annotations | object | `{}` | Additional annotations to put on the Kuma Control Plane |
@@ -34,18 +37,21 @@ A Helm chart for the Kuma Control Plane
 | controlPlane.globalZoneSyncService.loadBalancerIP | string | `nil` | Optionally specify IP to be used by cloud provider when configuring load balancer |
 | controlPlane.globalZoneSyncService.annotations | object | `{}` | Additional annotations to put on the Global Zone Sync Service |
 | controlPlane.globalZoneSyncService.port | int | `5685` | Port on which Global Zone Sync Service is exposed |
-| controlPlane.defaults.skipMeshCreation | bool | `false` | Whether or not to skip creating the default Mesh |
+| controlPlane.defaults.skipMeshCreation | bool | `false` | Whether to skip creating the default Mesh |
 | controlPlane.resources | string | `nil` | Optionally override the resource spec |
-| controlPlane.tls.general.secretName | string | `""` | Secret that contains tls.crt, key.crt and ca.crt for protecting Kuma in-cluster communication |
+| controlPlane.tls.general.secretName | string | `""` | Secret that contains tls.crt, tls.key [and ca.crt when no controlPlane.tls.general.caSecretName specified] for protecting Kuma in-cluster communication |
+| controlPlane.tls.general.caSecretName | string | `""` | Secret that contains ca.crt that was used to sign cert for protecting Kuma in-cluster communication (ca.crt present in this secret have precedence over the one provided in the controlPlane.tls.general.secretName) |
 | controlPlane.tls.general.caBundle | string | `""` | Base64 encoded CA certificate (the same as in controlPlane.tls.general.secret#ca.crt) |
-| controlPlane.tls.apiServer.secretName | string | `""` | Secret that contains tls.crt, key.crt for protecting Kuma API on HTTPS |
+| controlPlane.tls.apiServer.secretName | string | `""` | Secret that contains tls.crt, tls.key for protecting Kuma API on HTTPS |
 | controlPlane.tls.apiServer.clientCertsSecretName | string | `""` | Secret that contains list of .pem certificates that can access admin endpoints of Kuma API on HTTPS |
-| controlPlane.tls.kdsGlobalServer.secretName | string | `""` | Secret that contains tls.crt, key.crt for protecting cross cluster communication |
+| controlPlane.tls.kdsGlobalServer.secretName | string | `""` | Secret that contains tls.crt, tls.key for protecting cross cluster communication |
 | controlPlane.tls.kdsZoneClient.secretName | string | `""` | Secret that contains ca.crt which was used to sign KDS Global server. Used for CP verification |
 | controlPlane.image.pullPolicy | string | `"IfNotPresent"` | Kuma CP ImagePullPolicy |
 | controlPlane.image.repository | string | `"kuma-cp"` | Kuma CP image repository |
 | controlPlane.secrets | list of { Env: string, Secret: string, Key: string } | `nil` | Secrets to add as environment variables, where `Env` is the name of the env variable, `Secret` is the name of the Secret, and `Key` is the key of the Secret value to use |
 | controlPlane.envVars | object | `{}` | Additional environment variables that will be passed to the control plane |
+| controlPlane.extraConfigMaps | list | `[]` | Additional config maps to mount into the control plane, with optional inline values |
+| controlPlane.extraSecrets | list | `[]` | Additional secrets to mount into the control plane |
 | controlPlane.webhooks.validator.additionalRules | string | `""` | Additional rules to apply on Kuma validator webhook. Useful when building custom policy on top of Kuma. |
 | controlPlane.webhooks.ownerReference.additionalRules | string | `""` | Additional rules to apply on Kuma owner reference webhook. Useful when building custom policy on top of Kuma. |
 | cni.enabled | bool | `false` | Install Kuma with CNI instead of proxy init container |
@@ -68,13 +74,27 @@ A Helm chart for the Kuma Control Plane
 | ingress.service.loadBalancerIP | string | `nil` | Optionally specify IP to be used by cloud provider when configuring load balancer |
 | ingress.service.annotations | object | `{}` | Additional annotations to put on the Ingress service |
 | ingress.service.port | int | `10001` | Port on which Ingress is exposed |
+| ingress.service.nodePort | string | `nil` | Port on which service is exposed on Node for service of type NodePort |
 | ingress.annotations | object | `{}` | Additional deployment annotation |
 | ingress.nodeSelector | object | `{"kubernetes.io/arch":"amd64","kubernetes.io/os":"linux"}` | Node Selector for the Ingress pods |
+| ingress.affinity | object | `{}` | Affinity placement rule for the Kuma Ingress pods |
+| egress.enabled | bool | `false` | If true, it deploys Egress for cross cluster communication |
+| egress.drainTime | string | `"30s"` | Time for which old listener will still be active as draining |
+| egress.replicas | int | `1` | Number of replicas of the Egress |
+| egress.service.type | string | `"ClusterIP"` | Service type of the Egress |
+| egress.service.loadBalancerIP | string | `nil` | Optionally specify IP to be used by cloud provider when configuring load balancer |
+| egress.service.annotations | object | `{}` | Additional annotations to put on the Egress service |
+| egress.service.port | int | `10002` | Port on which Egress is exposed |
+| egress.service.nodePort | string | `nil` | Port on which service is exposed on Node for service of type NodePort |
+| egress.annotations | object | `{}` | Additional deployment annotation |
+| egress.nodeSelector | object | `{"kubernetes.io/arch":"amd64","kubernetes.io/os":"linux"}` | Node Selector for the Egress pods |
+| egress.affinity | object | `{}` | Affinity placement rule for the Kuma Ingress pods |
 | kumactl.image.repository | string | `"kumactl"` | The kumactl image repository |
 | kubectl.image.registry | string | `"bitnami"` | The kubectl image registry |
 | kubectl.image.repository | string | `"kubectl"` | The kubectl image repository |
 | kubectl.image.tag | string | `"1.20"` | The kubectl image tag |
 | hooks.nodeSelector | object | `{"kubernetes.io/arch":"amd64","kubernetes.io/os":"linux"}` | Node selector for the HELM hooks |
+| experimental.meshGateway | bool | `false` | If true, it installs experimental built-in Gateway support |
 
 ## Custom Resource Definitions
 

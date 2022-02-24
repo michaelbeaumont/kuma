@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/gruntwork-io/terratest/modules/retry"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 
@@ -14,17 +14,13 @@ import (
 
 func UniversalTransparentProxyDeployment() {
 	var cluster Cluster
-	var deployOptsFuncs []KumaDeploymentOption
 
 	BeforeEach(func() {
 		cluster = NewUniversalCluster(NewTestingT(), Kuma3, Silent)
-		deployOptsFuncs = KumaUniversalDeployOpts
 
 		err := NewClusterSetup().
-			Install(Kuma(core.Standalone, deployOptsFuncs...)).
+			Install(Kuma(core.Standalone)).
 			Setup(cluster)
-		Expect(err).ToNot(HaveOccurred())
-		err = cluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		echoServerToken, err := cluster.GetKuma().GenerateDpToken("default", "echo-server_kuma-test_svc_8080")
@@ -44,7 +40,7 @@ func UniversalTransparentProxyDeployment() {
 		if ShouldSkipCleanup() {
 			return
 		}
-		Expect(cluster.DeleteKuma(deployOptsFuncs...)).To(Succeed())
+		Expect(cluster.DeleteKuma()).To(Succeed())
 		Expect(cluster.DismissCluster()).To(Succeed())
 	})
 

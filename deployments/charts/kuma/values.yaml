@@ -4,15 +4,18 @@ global:
     registry: "docker.io/kumahq"
     # -- The default tag for all Kuma images, which itself defaults to .Chart.AppVersion
     tag:
+  # -- Add `imagePullSecrets` to all the service accounts used for Kuma components
+  imagePullSecrets: []
 
-# -- Whether or not to patch the target namespace with the system label
+# -- Whether to patch the target namespace with the system label
 patchSystemNamespace: true
 
-# -- Whether ot not install new CRDs before upgrade  (if any were introduced
-#    with the new version of Kuma)
 installCrdsOnUpgrade:
+  # -- Whether install new CRDs before upgrade (if any were introduced with the new version of Kuma)
   enabled: true
-  imagePullSecrets: [ ]
+  # -- The `imagePullSecrets` to attach to the Service Account running CRD installation.
+  # This field will be deprecated in a future release, please use .global.imagePullSecrets
+  imagePullSecrets: []
 
 controlPlane:
   # -- Kuma CP log level: one of off,info,debug
@@ -56,8 +59,11 @@ controlPlane:
     kubernetes.io/os: linux
     kubernetes.io/arch: amd64
 
+  # -- Affinity placement rule for the Kuma Control Plane pods
+  affinity: {}
+
   # -- Failure policy of the mutating webhook implemented by the Kuma Injector component
-  injectorFailurePolicy: Ignore
+  injectorFailurePolicy: Fail
 
   service:
     # -- (string) Optionally override of the Kuma Control Plane Service's name
@@ -81,7 +87,7 @@ controlPlane:
     port: 5685
 
   defaults:
-    # -- Whether or not to skip creating the default Mesh
+    # -- Whether to skip creating the default Mesh
     skipMeshCreation: false
 
   # -- Optionally override the resource spec
@@ -94,17 +100,23 @@ controlPlane:
   # TLS for various servers
   tls:
     general:
-      # -- Secret that contains tls.crt, key.crt and ca.crt for protecting Kuma in-cluster communication
+      # -- Secret that contains tls.crt, tls.key [and ca.crt when no
+      # controlPlane.tls.general.caSecretName specified] for protecting
+      # Kuma in-cluster communication
       secretName: ""
+      # -- Secret that contains ca.crt that was used to sign cert for protecting
+      # Kuma in-cluster communication (ca.crt present in this secret
+      # have precedence over the one provided in the controlPlane.tls.general.secretName)
+      caSecretName: ""
       # -- Base64 encoded CA certificate (the same as in controlPlane.tls.general.secret#ca.crt)
       caBundle: ""
     apiServer:
-      # -- Secret that contains tls.crt, key.crt for protecting Kuma API on HTTPS
+      # -- Secret that contains tls.crt, tls.key for protecting Kuma API on HTTPS
       secretName: ""
       # -- Secret that contains list of .pem certificates that can access admin endpoints of Kuma API on HTTPS
       clientCertsSecretName: ""
     kdsGlobalServer:
-      # -- Secret that contains tls.crt, key.crt for protecting cross cluster communication
+      # -- Secret that contains tls.crt, tls.key for protecting cross cluster communication
       secretName: ""
     kdsZoneClient:
       # -- Secret that contains ca.crt which was used to sign KDS Global server. Used for CP verification
@@ -124,6 +136,21 @@ controlPlane:
 
   # -- Additional environment variables that will be passed to the control plane
   envVars: { }
+
+  # -- Additional config maps to mount into the control plane, with optional inline values
+  extraConfigMaps: [ ]
+#    - name: extra-config
+#      mountPath: /etc/extra-config
+#      readOnly: true
+#      values:
+#        extra-config-key: |
+#          extra-config-value
+
+  # -- Additional secrets to mount into the control plane
+  extraSecrets: [ ]
+#    - name: extra-config
+#      mountPath: /etc/extra-config
+#      readOnly: true
 
   webhooks:
     validator:
@@ -186,12 +213,45 @@ ingress:
     annotations: { }
     # -- Port on which Ingress is exposed
     port: 10001
+    # -- Port on which service is exposed on Node for service of type NodePort
+    nodePort:
   # -- Additional deployment annotation
   annotations: { }
   # -- Node Selector for the Ingress pods
   nodeSelector:
     kubernetes.io/os: linux
     kubernetes.io/arch: amd64
+
+  # -- Affinity placement rule for the Kuma Ingress pods
+  affinity: {}
+
+egress:
+  # -- If true, it deploys Egress for cross cluster communication
+  enabled: false
+  # -- Time for which old listener will still be active as draining
+  drainTime: 30s
+  # -- Number of replicas of the Egress
+  replicas: 1
+  service:
+    # -- Service type of the Egress
+    type: ClusterIP
+    # -- (string) Optionally specify IP to be used by cloud provider when configuring load balancer
+    loadBalancerIP:
+    # -- Additional annotations to put on the Egress service
+    annotations: { }
+    # -- Port on which Egress is exposed
+    port: 10002
+    # -- Port on which service is exposed on Node for service of type NodePort
+    nodePort:
+  # -- Additional deployment annotation
+  annotations: { }
+  # -- Node Selector for the Egress pods
+  nodeSelector:
+    kubernetes.io/os: linux
+    kubernetes.io/arch: amd64
+
+  # -- Affinity placement rule for the Kuma Ingress pods
+  affinity: {}
 
 kumactl:
   image:
@@ -213,3 +273,7 @@ hooks:
   nodeSelector:
     kubernetes.io/os: linux
     kubernetes.io/arch: amd64
+
+experimental:
+  # -- If true, it installs experimental built-in Gateway support
+  meshGateway: false

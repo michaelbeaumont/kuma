@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
-	"strings"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	gomega_types "github.com/onsi/gomega/types"
 	"github.com/spf13/cobra"
@@ -114,6 +112,9 @@ var _ = Describe("kumactl inspect dataplanes", func() {
 										Version: "1.16.0",
 										Build:   "hash/1.16.0/RELEASE",
 									},
+									Dependencies: map[string]string{
+										"coredns": "1.8.3",
+									},
 								},
 							},
 							{
@@ -136,6 +137,9 @@ var _ = Describe("kumactl inspect dataplanes", func() {
 									Envoy: &mesh_proto.EnvoyVersion{
 										Version: "1.16.1",
 										Build:   "hash/1.16.1/RELEASE",
+									},
+									Dependencies: map[string]string{
+										"coredns": "1.8.3",
 									},
 								},
 							},
@@ -205,6 +209,9 @@ var _ = Describe("kumactl inspect dataplanes", func() {
 										Version: "1.16.0",
 										Build:   "hash/1.16.0/RELEASE",
 									},
+									Dependencies: map[string]string{
+										"coredns": "1.8.3",
+									},
 								},
 							},
 							{
@@ -227,6 +234,9 @@ var _ = Describe("kumactl inspect dataplanes", func() {
 									Envoy: &mesh_proto.EnvoyVersion{
 										Version: "1.16.1",
 										Build:   "hash/1.16.1/RELEASE",
+									},
+									Dependencies: map[string]string{
+										"coredns": "1.8.3",
 									},
 								},
 							},
@@ -299,6 +309,9 @@ var _ = Describe("kumactl inspect dataplanes", func() {
 										Version: "1.16.0",
 										Build:   "hash/1.16.0/RELEASE",
 									},
+									Dependencies: map[string]string{
+										"coredns": "1.8.3",
+									},
 								},
 							},
 							{
@@ -321,6 +334,9 @@ var _ = Describe("kumactl inspect dataplanes", func() {
 									Envoy: &mesh_proto.EnvoyVersion{
 										Version: "1.16.1",
 										Build:   "hash/1.16.1/RELEASE",
+									},
+									Dependencies: map[string]string{
+										"coredns": "1.8.3",
 									},
 								},
 							},
@@ -408,16 +424,7 @@ var _ = Describe("kumactl inspect dataplanes", func() {
 		type testCase struct {
 			outputFormat string
 			goldenFile   string
-			matcher      func(interface{}) gomega_types.GomegaMatcher
-		}
-
-		byLine := func(s string) []string {
-			lines := strings.Split(s, "\n")
-			var trimmedLines []string
-			for _, line := range lines {
-				trimmedLines = append(trimmedLines, strings.TrimSpace(line))
-			}
-			return trimmedLines
+			matcher      func(path ...string) gomega_types.GomegaMatcher
 		}
 
 		DescribeTable("kumactl inspect dataplanes -o table|json|yaml",
@@ -432,31 +439,27 @@ var _ = Describe("kumactl inspect dataplanes", func() {
 
 				// then
 				Expect(err).ToNot(HaveOccurred())
-				Expect(buf.String()).To(matchers.MatchGoldenEqual(filepath.Join("testdata", given.goldenFile)))
+				Expect(buf.String()).To(given.matcher("testdata", given.goldenFile))
 			},
 			Entry("should support Table output by default", testCase{
 				outputFormat: "",
 				goldenFile:   "inspect-dataplanes.golden.txt",
-				matcher: func(expected interface{}) gomega_types.GomegaMatcher {
-					return WithTransform(byLine, Equal(byLine(string(expected.([]byte)))))
-				},
+				matcher:      matchers.MatchGoldenEqual,
 			}),
 			Entry("should support Table output explicitly", testCase{
 				outputFormat: "-otable",
 				goldenFile:   "inspect-dataplanes.golden.txt",
-				matcher: func(expected interface{}) gomega_types.GomegaMatcher {
-					return WithTransform(byLine, Equal(byLine(string(expected.([]byte)))))
-				},
+				matcher:      matchers.MatchGoldenEqual,
 			}),
 			Entry("should support JSON output", testCase{
 				outputFormat: "-ojson",
 				goldenFile:   "inspect-dataplanes.golden.json",
-				matcher:      MatchJSON,
+				matcher:      matchers.MatchGoldenJSON,
 			}),
 			Entry("should support YAML output", testCase{
 				outputFormat: "-oyaml",
 				goldenFile:   "inspect-dataplanes.golden.yaml",
-				matcher:      MatchYAML,
+				matcher:      matchers.MatchGoldenYAML,
 			}),
 		)
 

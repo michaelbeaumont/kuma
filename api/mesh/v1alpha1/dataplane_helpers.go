@@ -29,6 +29,9 @@ const (
 	// External service tag
 	ExternalServiceTag = "kuma.io/external-service-name"
 
+	// Listener tag is used to select Gateway listeners
+	ListenerTag = "gateways.kuma.io/listener-name"
+
 	// Used for Service-less dataplanes
 	TCPPortReserved = 49151 // IANA Reserved
 )
@@ -38,11 +41,12 @@ type ProxyType string
 const (
 	DataplaneProxyType ProxyType = "dataplane"
 	IngressProxyType   ProxyType = "ingress"
+	EgressProxyType    ProxyType = "egress"
 )
 
 func (t ProxyType) IsValid() error {
 	switch t {
-	case DataplaneProxyType, IngressProxyType:
+	case DataplaneProxyType, IngressProxyType, EgressProxyType:
 		return nil
 	}
 	return errors.Errorf("%s is not a valid proxy type", t)
@@ -90,15 +94,15 @@ func (i OutboundInterface) String() string {
 		strconv.FormatUint(uint64(i.DataplanePort), 10))
 }
 
-func (n *Dataplane_Networking) GetOutboundInterfaces() ([]OutboundInterface, error) {
+func (n *Dataplane_Networking) GetOutboundInterfaces() []OutboundInterface {
 	if n == nil {
-		return nil, nil
+		return nil
 	}
 	ofaces := make([]OutboundInterface, len(n.Outbound))
 	for i, outbound := range n.Outbound {
 		ofaces[i] = n.ToOutboundInterface(outbound)
 	}
-	return ofaces, nil
+	return ofaces
 }
 
 func (n *Dataplane_Networking) ToOutboundInterface(outbound *Dataplane_Networking_Outbound) OutboundInterface {
@@ -394,23 +398,23 @@ func (d *Dataplane) TagSet() MultiValueTagSet {
 	return tags
 }
 
+func (d *Dataplane) SingleValueTagSets() []SingleValueTagSet {
+	var sets []SingleValueTagSet
+	for _, inbound := range d.GetNetworking().GetInbound() {
+		sets = append(sets, SingleValueTagSet(inbound.Tags))
+	}
+	if gateway := d.GetNetworking().GetGateway(); gateway != nil {
+		sets = append(sets, gateway.GetTags())
+	}
+	return sets
+}
+
 func (d *Dataplane) GetIdentifyingService() string {
 	services := d.TagSet().Values(ServiceTag)
 	if len(services) > 0 {
 		return services[0]
 	}
 	return ServiceUnknown
-}
-
-// IsIngress returns true if this Dataplane specifies an ingress
-// configuration.
-//
-// Deprecated: use ZoneIngress instead.
-func (d *Dataplane) IsIngress() bool {
-	if d.GetNetworking() == nil {
-		return false
-	}
-	return d.GetNetworking().GetIngress() != nil
 }
 
 func (d *Dataplane) IsDelegatedGateway() bool {
@@ -421,31 +425,6 @@ func (d *Dataplane) IsDelegatedGateway() bool {
 func (d *Dataplane) IsBuiltinGateway() bool {
 	return d.GetNetworking().GetGateway() != nil &&
 		d.GetNetworking().GetGateway().GetType() == Dataplane_Networking_Gateway_BUILTIN
-}
-
-func (d *Dataplane) HasPublicAddress() bool {
-	if !d.IsIngress() {
-		return false
-	}
-	return d.Networking.Ingress.PublicAddress != "" && d.Networking.Ingress.PublicPort != 0
-}
-
-func (d *Dataplane) HasAvailableServices() bool {
-	if !d.IsIngress() {
-		return false
-	}
-	return len(d.Networking.Ingress.AvailableServices) != 0
-}
-
-func (d *Dataplane) IsZoneIngress(localZone string) bool {
-	if !d.IsIngress() {
-		return false
-	}
-	zone, ok := d.Networking.Inbound[0].Tags[ZoneTag]
-	if !ok {
-		return false
-	}
-	return zone != localZone
 }
 
 func (t MultiValueTagSet) String() string {

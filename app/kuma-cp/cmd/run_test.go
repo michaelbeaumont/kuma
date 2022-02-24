@@ -3,12 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/testing_frameworks/integration/addr"
 
@@ -54,7 +53,7 @@ func RunSmokeTest(factory ConfigFactory, workdir string) {
 			Expect(err).NotTo(HaveOccurred())
 			diagnosticsPort = freePort
 
-			file, err := ioutil.TempFile("", "*")
+			file, err := os.CreateTemp("", "*")
 			Expect(err).ToNot(HaveOccurred())
 			configFile = file
 		})

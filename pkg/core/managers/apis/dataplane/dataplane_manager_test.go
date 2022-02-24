@@ -3,7 +3,7 @@ package dataplane_test
 import (
 	"context"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -19,7 +19,7 @@ var _ = Describe("Dataplane Manager", func() {
 	It("should create a new dataplane with inbound zone tag", func() {
 		// setup
 		s := memory.NewStore()
-		manager := dataplane.NewDataplaneManager(s, "zone-1")
+		manager := dataplane.NewDataplaneManager(s, "zone-1", dataplane.NewMembershipValidator())
 		err := s.Create(context.Background(), core_mesh.NewMeshResource(), store.CreateByKey(model.DefaultMesh, model.NoMesh))
 		Expect(err).ToNot(HaveOccurred())
 
@@ -57,7 +57,7 @@ var _ = Describe("Dataplane Manager", func() {
 	It("should update a dataplane with inbound zone tag", func() {
 		// setup
 		s := memory.NewStore()
-		manager := dataplane.NewDataplaneManager(s, "zone-1")
+		manager := dataplane.NewDataplaneManager(s, "zone-1", dataplane.NewMembershipValidator())
 		err := s.Create(context.Background(), core_mesh.NewMeshResource(), store.CreateByKey(model.DefaultMesh, model.NoMesh))
 		Expect(err).ToNot(HaveOccurred())
 
@@ -105,7 +105,7 @@ var _ = Describe("Dataplane Manager", func() {
 	It("should create a new gateway with zone tag", func() {
 		// setup
 		s := memory.NewStore()
-		manager := dataplane.NewDataplaneManager(s, "zone-1")
+		manager := dataplane.NewDataplaneManager(s, "zone-1", dataplane.NewMembershipValidator())
 		err := s.Create(context.Background(), core_mesh.NewMeshResource(), store.CreateByKey(model.DefaultMesh, model.NoMesh))
 		Expect(err).ToNot(HaveOccurred())
 
@@ -139,7 +139,7 @@ var _ = Describe("Dataplane Manager", func() {
 	It("should update a dataplane with gateway zone tag", func() {
 		// setup
 		s := memory.NewStore()
-		manager := dataplane.NewDataplaneManager(s, "zone-1")
+		manager := dataplane.NewDataplaneManager(s, "zone-1", dataplane.NewMembershipValidator())
 		err := s.Create(context.Background(), core_mesh.NewMeshResource(), store.CreateByKey(model.DefaultMesh, model.NoMesh))
 		Expect(err).ToNot(HaveOccurred())
 
@@ -184,7 +184,7 @@ var _ = Describe("Dataplane Manager", func() {
 	It("should set health.ready to false if serviceProbe is provided and health is nil", func() {
 		// setup
 		s := memory.NewStore()
-		manager := dataplane.NewDataplaneManager(s, "zone-1")
+		manager := dataplane.NewDataplaneManager(s, "zone-1", dataplane.NewMembershipValidator())
 		err := s.Create(context.Background(), core_mesh.NewMeshResource(), store.CreateByKey(model.DefaultMesh, model.NoMesh))
 		Expect(err).ToNot(HaveOccurred())
 

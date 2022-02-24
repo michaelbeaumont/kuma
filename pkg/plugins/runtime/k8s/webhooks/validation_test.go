@@ -3,8 +3,7 @@ package webhooks_test
 import (
 	"context"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	admissionv1 "k8s.io/api/admission/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
@@ -44,7 +43,7 @@ var _ = Describe("Validation", func() {
 		func(given testCase) {
 			// given
 			webhook := &kube_admission.Webhook{
-				Handler: webhooks.NewValidatingWebhook(converter, core_registry.Global(), k8s_registry.Global(), given.mode, "kuma-system"),
+				Handler: webhooks.NewValidatingWebhook(converter, core_registry.Global(), k8s_registry.Global(), given.mode, "system:serviceaccount:kuma-system:kuma-control-plane"),
 			}
 			Expect(webhook.InjectScheme(scheme)).To(Succeed())
 
@@ -128,7 +127,7 @@ var _ = Describe("Validation", func() {
 		Entry("should pass validation for synced policy from Global to Zone", testCase{
 			mode:        core.Zone,
 			objTemplate: &mesh_proto.TrafficRoute{},
-			username:    "system:serviceaccount:kuma-system:mesh",
+			username:    "system:serviceaccount:kuma-system:kuma-control-plane",
 			obj: `
             {
               "apiVersion":"kuma.io/v1alpha1",
@@ -491,7 +490,7 @@ var _ = Describe("Validation", func() {
 		Entry("should fail validation on missing mesh object", testCase{
 			mode:        core.Zone,
 			objTemplate: &mesh_proto.TrafficRoute{},
-			username:    "system:serviceaccount:kuma-system:mesh",
+			username:    "system:serviceaccount:kuma-system:kuma-control-plane",
 			obj: `
             {
               "apiVersion":"kuma.io/v1alpha1",

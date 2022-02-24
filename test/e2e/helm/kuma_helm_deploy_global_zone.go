@@ -10,7 +10,7 @@ import (
 	http_helper "github.com/gruntwork-io/terratest/modules/http-helper"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 
@@ -20,22 +20,9 @@ import (
 )
 
 func ZoneAndGlobalWithHelmChart() {
-	namespaceWithSidecarInjection := func(namespace string) string {
-		return fmt.Sprintf(`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: %s
-  annotations:
-    kuma.io/sidecar-injection: "enabled"
-`, namespace)
-	}
-
 	var clusters Clusters
 	var c1, c2 Cluster
 	var global, zone ControlPlane
-	var optsGlobal, optsZone = KumaK8sDeployOpts, KumaZoneK8sDeployOpts
-
 	BeforeEach(func() {
 		var err error
 		clusters, err = NewK8sClusters(
@@ -54,43 +41,32 @@ metadata:
 			"kuma-%s",
 			strings.ToLower(random.UniqueId()),
 		)
-		optsGlobal = append(optsGlobal,
-			WithInstallationMode(HelmInstallationMode),
-			WithHelmReleaseName(releaseName))
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Global, optsGlobal...)).
+			Install(Kuma(core.Global,
+				WithInstallationMode(HelmInstallationMode),
+				WithHelmReleaseName(releaseName),
+			)).
 			Setup(c1)
 		Expect(err).ToNot(HaveOccurred())
 
 		global = c1.GetKuma()
 		Expect(global).ToNot(BeNil())
 
-		optsZone = append(optsZone,
-			WithInstallationMode(HelmInstallationMode),
-			WithHelmReleaseName(releaseName),
-			WithGlobalAddress(global.GetKDSServerAddress()),
-			WithHelmOpt("ingress.enabled", "true"))
-
 		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone...)).
-			Install(YamlK8s(namespaceWithSidecarInjection(TestNamespace))).
+			Install(Kuma(core.Zone,
+				WithInstallationMode(HelmInstallationMode),
+				WithHelmReleaseName(releaseName),
+				WithGlobalAddress(global.GetKDSServerAddress()),
+				WithHelmOpt("ingress.enabled", "true"),
+			)).
+			Install(NamespaceWithSidecarInjection(TestNamespace)).
 			Install(DemoClientK8s("default")).
 			Setup(c2)
 		Expect(err).ToNot(HaveOccurred())
 
 		zone = c2.GetKuma()
 		Expect(zone).ToNot(BeNil())
-
-		// when
-		err = c1.VerifyKuma()
-		// then
-		Expect(err).ToNot(HaveOccurred())
-
-		// when
-		err = c2.VerifyKuma()
-		// then
-		Expect(err).ToNot(HaveOccurred())
 
 		// then
 		logs1, err := global.GetKumaCPLogs()
@@ -110,8 +86,8 @@ metadata:
 		// tear down apps
 		Expect(c2.DeleteNamespace(TestNamespace)).To(Succeed())
 		// tear down Kuma
-		Expect(c1.DeleteKuma(optsGlobal...)).To(Succeed())
-		Expect(c2.DeleteKuma(optsZone...)).To(Succeed())
+		Expect(c1.DeleteKuma()).To(Succeed())
+		Expect(c2.DeleteKuma()).To(Succeed())
 		// tear down clusters
 		Expect(clusters.DismissCluster()).To(Succeed())
 	})
@@ -119,9 +95,9 @@ metadata:
 	It("Should deploy Zone and Global on 2 clusters", func() {
 		clustersStatus := api_server.Zones{}
 		Eventually(func() (bool, error) {
-			status, response := http_helper.HttpGet(c1.GetTesting(), global.GetGlobaStatusAPI(), nil)
+			status, response := http_helper.HttpGet(c1.GetTesting(), global.GetGlobalStatusAPI(), nil)
 			if status != http.StatusOK {
-				return false, errors.Errorf("unable to contact server %s with status %d", global.GetGlobaStatusAPI(), status)
+				return false, errors.Errorf("unable to contact server %s with status %d", global.GetGlobalStatusAPI(), status)
 			}
 			err := json.Unmarshal([]byte(response), &clustersStatus)
 			if err != nil {

@@ -87,6 +87,9 @@ func addControllers(mgr kube_ctrl.Manager, rt core_runtime.Runtime, converter k8
 	if err := addMeshReconciler(mgr, rt, converter); err != nil {
 		return err
 	}
+	if err := addGatewayReconcilers(mgr, rt, converter); err != nil {
+		return err
+	}
 	if err := addPodReconciler(mgr, rt, converter); err != nil {
 		return err
 	}
@@ -122,7 +125,6 @@ func addMeshReconciler(mgr kube_ctrl.Manager, rt core_runtime.Runtime, converter
 	}
 	reconciler := &k8s_controllers.MeshReconciler{
 		Client:          mgr.GetClient(),
-		Reader:          mgr.GetAPIReader(),
 		Log:             core.Log.WithName("controllers").WithName("Mesh"),
 		Scheme:          mgr.GetScheme(),
 		Converter:       converter,
@@ -234,11 +236,14 @@ func addValidators(mgr kube_ctrl.Manager, rt core_runtime.Runtime, converter k8s
 		return errors.Errorf("could not find composite validator in the extensions context")
 	}
 
-	handler := k8s_webhooks.NewValidatingWebhook(converter, core_registry.Global(), k8s_registry.Global(), rt.Config().Mode, rt.Config().Store.Kubernetes.SystemNamespace)
+	handler := k8s_webhooks.NewValidatingWebhook(converter, core_registry.Global(), k8s_registry.Global(), rt.Config().Mode, rt.Config().Runtime.Kubernetes.ServiceAccountName)
 	composite.AddValidator(handler)
 
-	k8sMeshValidator := k8s_webhooks.NewMeshValidatorWebhook(rt.MeshValidator(), converter, rt.ResourceManager())
+	k8sMeshValidator := k8s_webhooks.NewMeshValidatorWebhook(rt.ResourceValidators().Mesh, converter)
 	composite.AddValidator(k8sMeshValidator)
+
+	k8sDataplaneValidator := k8s_webhooks.NewDataplaneValidatorWebhook(rt.ResourceValidators().Dataplane, converter, rt.ResourceManager())
+	composite.AddValidator(k8sDataplaneValidator)
 
 	rateLimitValidator := ratelimit.RateLimitValidator{
 		Store: rt.ResourceStore(),
@@ -255,6 +260,10 @@ func addValidators(mgr kube_ctrl.Manager, rt core_runtime.Runtime, converter k8s
 	coreZoneValidator := zone.Validator{Store: rt.ResourceStore()}
 	k8sZoneValidator := k8s_webhooks.NewZoneValidatorWebhook(coreZoneValidator)
 	composite.AddValidator(k8sZoneValidator)
+
+	for _, validator := range gatewayValidators(rt, converter) {
+		composite.AddValidator(validator)
+	}
 
 	path := "/validate-kuma-io-v1alpha1"
 	mgr.GetWebhookServer().Register(path, composite.WebHook())
@@ -285,6 +294,7 @@ func addMutators(mgr kube_ctrl.Manager, rt core_runtime.Runtime, converter k8s_c
 			address,
 			mgr.GetClient(),
 			converter,
+			rt.Config().GetEnvoyAdminPort(),
 		)
 		if err != nil {
 			return err

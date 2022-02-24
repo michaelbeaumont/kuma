@@ -1,12 +1,11 @@
 package generator_test
 
 import (
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
@@ -49,13 +48,13 @@ var _ = Describe("DirectAccessProxyGenerator", func() {
 
 			// dataplane
 			dataplane := core_mesh.NewDataplaneResource()
-			bytes, err := ioutil.ReadFile(filepath.Join("testdata", "direct-access", given.dataplaneFile))
+			bytes, err := os.ReadFile(filepath.Join("testdata", "direct-access", given.dataplaneFile))
 			Expect(err).ToNot(HaveOccurred())
 			parseResource(bytes, dataplane)
 
 			// all dataplanes
 			var dataplanes []*core_mesh.DataplaneResource
-			dpsBytes, err := ioutil.ReadFile(filepath.Join("testdata", "direct-access", given.dataplanesFile))
+			dpsBytes, err := os.ReadFile(filepath.Join("testdata", "direct-access", given.dataplanesFile))
 			Expect(err).ToNot(HaveOccurred())
 			dpYamls := util_yaml.SplitYAML(string(dpsBytes))
 			for _, dpYAML := range dpYamls {
@@ -66,7 +65,7 @@ var _ = Describe("DirectAccessProxyGenerator", func() {
 
 			// mesh
 			mesh := core_mesh.NewMeshResource()
-			bytes, err = ioutil.ReadFile(filepath.Join("testdata", "direct-access", given.meshFile))
+			bytes, err = os.ReadFile(filepath.Join("testdata", "direct-access", given.meshFile))
 			Expect(err).ToNot(HaveOccurred())
 			parseResource(bytes, mesh)
 
@@ -74,8 +73,10 @@ var _ = Describe("DirectAccessProxyGenerator", func() {
 				ControlPlane: nil,
 				Mesh: context.MeshContext{
 					Resource: mesh,
-					Dataplanes: &core_mesh.DataplaneResourceList{
-						Items: dataplanes,
+					Resources: map[core_model.ResourceType]core_model.ResourceList{
+						core_mesh.DataplaneType: &core_mesh.DataplaneResourceList{
+							Items: dataplanes,
+						},
 					},
 				},
 			}

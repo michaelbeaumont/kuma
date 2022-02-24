@@ -16,13 +16,25 @@ GH_PAGES_BRANCH="gh-pages"
 function package {
   # First package all the charts
   for dir in "${CHARTS_DIR}"/*; do
-    if [ ! -d "$dir" ]; then
+    if [ ! -d "${dir}" ]; then
       continue
+    fi
+
+    # Fail if there are uncommitted changes
+    git diff --exit-code HEAD -- "${dir}"
+
+    # TODO remove this when Gateway is no longer experimental
+    # Gateway CRDs are installed conditionally via install missing CRDs job
+    if [[ $(basename "${dir}") == "kuma" ]]; then
+      find "${dir}/crds" -name "*gateway*.yaml" -delete
     fi
 
     cr package \
       --package-path "${CHARTS_PACKAGE_PATH}" \
-      "$dir"
+      "${dir}"
+
+    # Restore files removed above
+    git checkout -- "${dir}"
   done
 }
 
@@ -33,7 +45,6 @@ function release {
     --git-repo "${GH_REPO}" \
     --token "${GH_TOKEN}" \
     --package-path "${CHARTS_PACKAGE_PATH}"
-
 
   # Then build and upload the index file to github pages
   git clone --single-branch --branch "${GH_PAGES_BRANCH}" $GH_REPO_URL
@@ -47,8 +58,6 @@ function release {
 
   pushd ${GH_REPO}
   # tell git who we are before adding the index file
-  git config user.email "helm@kuma.io"
-  git config user.name "Helm Releaser"
   git add "${CHARTS_INDEX_FILE}"
   git commit -m "ci(helm) publish charts"
   git push
@@ -84,18 +93,17 @@ function main {
     shift
   done
 
-  [ -z "${GH_TOKEN}" ] && msg_err "GH_TOKEN required"
-
   case $op in
     package)
       package
       ;;
     release)
+      [ -z "${GH_TOKEN}" ] && msg_err "GH_TOKEN required"
+
       release
       ;;
   esac
 }
 
 
-main $@
-
+main "$@"

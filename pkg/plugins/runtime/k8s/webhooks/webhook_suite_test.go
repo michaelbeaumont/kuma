@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	kube_meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kube_runtime "k8s.io/apimachinery/pkg/runtime"
@@ -33,7 +33,7 @@ var _ = BeforeSuite(func() {
 	// setup K8S with Kuma CRDs
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "..", "resources", "k8s", "native", "config", "crd", "bases"),
+			filepath.Join("..", "..", "..", "..", "..", test.CustomResourceDir),
 		},
 	}
 	cfg, err := testEnv.Start()

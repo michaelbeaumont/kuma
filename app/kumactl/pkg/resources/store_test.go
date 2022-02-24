@@ -2,8 +2,9 @@ package resources
 
 import (
 	"net/http"
+	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/app/kumactl/pkg/client"
@@ -28,7 +29,7 @@ var _ = Describe("Store", func() {
 				cp := &config_proto.ControlPlane{}
 				err := util_proto.FromYAML([]byte(config), cp)
 				Expect(err).ToNot(HaveOccurred())
-				_, err = client.ApiServerClient(cp.Coordinates.ApiServer)
+				_, err = client.ApiServerClient(cp.Coordinates.ApiServer, time.Second)
 
 				// then
 				Expect(err).ToNot(HaveOccurred())
@@ -49,7 +50,7 @@ var _ = Describe("Store", func() {
 				}
 
 				// when
-				_, err := client.ApiServerClient(cp.Coordinates.ApiServer)
+				_, err := client.ApiServerClient(cp.Coordinates.ApiServer, time.Second)
 
 				// then
 				Expect(err.Error()).To(ContainSubstring("Failed to parse API Server URL"))

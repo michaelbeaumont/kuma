@@ -2,16 +2,16 @@ package envoy
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	kuma_dp "github.com/kumahq/kuma/pkg/config/app/kuma-dp"
@@ -45,11 +45,11 @@ var _ = Describe("Remote Bootstrap", func() {
 		defer server.Close()
 		mux.HandleFunc("/bootstrap", func(writer http.ResponseWriter, req *http.Request) {
 			defer GinkgoRecover()
-			body, err := ioutil.ReadAll(req.Body)
+			body, err := io.ReadAll(req.Body)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(body).To(MatchJSON(given.expectedBootstrapRequest))
 
-			response, err := ioutil.ReadFile(filepath.Join("testdata", "remote-bootstrap-config.golden.yaml"))
+			response, err := os.ReadFile(filepath.Join("testdata", "remote-bootstrap-config.golden.yaml"))
 			Expect(err).ToNot(HaveOccurred())
 			_, err = writer.Write(response)
 			Expect(err).ToNot(HaveOccurred())
@@ -69,7 +69,7 @@ var _ = Describe("Remote Bootstrap", func() {
 			},
 			DynamicMetadata: given.dynamicMetadata,
 		}
-		config, err := generator(fmt.Sprintf("http://localhost:%d", port), given.config, params)
+		_, config, err := generator(fmt.Sprintf("http://localhost:%d", port), given.config, params)
 
 		// then
 		Expect(err).ToNot(HaveOccurred())
@@ -223,7 +223,7 @@ var _ = Describe("Remote Bootstrap", func() {
 				writer.WriteHeader(404)
 				i++
 			} else {
-				response, err := ioutil.ReadFile(filepath.Join("testdata", "remote-bootstrap-config.golden.yaml"))
+				response, err := os.ReadFile(filepath.Join("testdata", "remote-bootstrap-config.golden.yaml"))
 				Expect(err).ToNot(HaveOccurred())
 				_, err = writer.Write(response)
 				Expect(err).ToNot(HaveOccurred())
@@ -247,7 +247,7 @@ var _ = Describe("Remote Bootstrap", func() {
 				},
 			},
 		}
-		_, err = generator(fmt.Sprintf("http://localhost:%d", port), cfg, params)
+		_, _, err = generator(fmt.Sprintf("http://localhost:%d", port), cfg, params)
 
 		// then
 		Expect(err).ToNot(HaveOccurred())
@@ -282,9 +282,9 @@ var _ = Describe("Remote Bootstrap", func() {
 				},
 			},
 		}
-		_, err = generator(fmt.Sprintf("http://localhost:%d", port), config, params)
+		_, _, err = generator(fmt.Sprintf("http://localhost:%d", port), config, params)
 
 		// then
-		Expect(err).To(MatchError("retryable: Dataplane entity not found. If you are running on Universal please create a Dataplane entity on kuma-cp before starting kuma-dp or pass it to kuma-dp run --dataplane-file=/file. If you are running on Kubernetes, please check the kuma-cp logs to determine why the Dataplane entity could not be created by the automatic sidecar injection."))
+		Expect(err).To(MatchError("Dataplane entity not found. If you are running on Universal please create a Dataplane entity on kuma-cp before starting kuma-dp or pass it to kuma-dp run --dataplane-file=/file. If you are running on Kubernetes, please check the kuma-cp logs to determine why the Dataplane entity could not be created by the automatic sidecar injection."))
 	})
 })

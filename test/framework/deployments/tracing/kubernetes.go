@@ -7,22 +7,21 @@ import (
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kumahq/kuma/pkg/test"
 	"github.com/kumahq/kuma/test/framework"
 )
 
 type k8SDeployment struct {
-	port uint32
+	jaegerApiTunnel *k8s.Tunnel
 }
 
 var _ Deployment = &k8SDeployment{}
 
 func (t *k8SDeployment) ZipkinCollectorURL() string {
-	return fmt.Sprintf("http://jaeger-collector.%s:9411/api/v2/spans", framework.DefaultTracingNamespace)
+	return fmt.Sprintf("http://jaeger-collector.%s:9411/api/v2/spans", framework.Config.DefaultTracingNamespace)
 }
 
 func (t *k8SDeployment) TracedServices() ([]string, error) {
-	return tracedServices(fmt.Sprintf("http://localhost:%d", t.port))
+	return tracedServices(fmt.Sprintf("http://%s", t.jaegerApiTunnel.Endpoint()))
 }
 
 func (t *k8SDeployment) Name() string {
@@ -43,7 +42,7 @@ func (t *k8SDeployment) Deploy(cluster framework.Cluster) error {
 	}
 
 	k8s.WaitUntilNumPodsCreated(cluster.GetTesting(),
-		cluster.GetKubectlOptions(framework.DefaultTracingNamespace),
+		cluster.GetKubectlOptions(framework.Config.DefaultTracingNamespace),
 		metav1.ListOptions{
 			LabelSelector: "app=jaeger",
 		},
@@ -52,7 +51,7 @@ func (t *k8SDeployment) Deploy(cluster framework.Cluster) error {
 		framework.DefaultTimeout)
 
 	pods := k8s.ListPods(cluster.GetTesting(),
-		cluster.GetKubectlOptions(framework.DefaultTracingNamespace),
+		cluster.GetKubectlOptions(framework.Config.DefaultTracingNamespace),
 		metav1.ListOptions{
 			LabelSelector: "app=jaeger",
 		},
@@ -62,18 +61,13 @@ func (t *k8SDeployment) Deploy(cluster framework.Cluster) error {
 	}
 
 	k8s.WaitUntilPodAvailable(cluster.GetTesting(),
-		cluster.GetKubectlOptions(framework.DefaultTracingNamespace),
+		cluster.GetKubectlOptions(framework.Config.DefaultTracingNamespace),
 		pods[0].Name,
 		framework.DefaultRetries,
 		framework.DefaultTimeout)
 
-	port, err := test.FindFreePort("")
-	if err != nil {
-		return err
-	}
-	t.port = port
-
-	cluster.(*framework.K8sCluster).PortForwardPod(framework.DefaultTracingNamespace, pods[0].Name, port, 16686)
+	t.jaegerApiTunnel = k8s.NewTunnel(cluster.GetKubectlOptions(framework.Config.DefaultTracingNamespace), k8s.ResourceTypePod, pods[0].Name, 0, 16686)
+	t.jaegerApiTunnel.ForwardPort(cluster.GetTesting())
 	return nil
 }
 
@@ -90,6 +84,6 @@ func (t *k8SDeployment) Delete(cluster framework.Cluster) error {
 	if err != nil {
 		return err
 	}
-	cluster.(*framework.K8sCluster).WaitNamespaceDelete(framework.DefaultTracingNamespace)
+	cluster.(*framework.K8sCluster).WaitNamespaceDelete(framework.Config.DefaultTracingNamespace)
 	return nil
 }

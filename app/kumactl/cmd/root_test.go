@@ -1,10 +1,10 @@
 package cmd_test
 
 import (
-	"io/ioutil"
 	"os"
+	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/app/kumactl/cmd"
@@ -21,7 +21,7 @@ var _ = Describe("kumactl root cmd", func() {
 	var backupDefaultConfigFile string
 
 	BeforeEach(func() {
-		file, err := ioutil.TempFile("", "")
+		file, err := os.CreateTemp("", "")
 		Expect(err).To(Succeed())
 		// we have to remove file. Config is created only if file does not exist already
 		Expect(os.Remove(file.Name())).To(Succeed())
@@ -37,7 +37,7 @@ var _ = Describe("kumactl root cmd", func() {
 		// given
 		rootCtx := &kumactl_cmd.RootContext{
 			Runtime: kumactl_cmd.RootRuntime{
-				NewBaseAPIServerClient: func(server *config_proto.ControlPlaneCoordinates_ApiServer) (util_http.Client, error) {
+				NewBaseAPIServerClient: func(server *config_proto.ControlPlaneCoordinates_ApiServer, _ time.Duration) (util_http.Client, error) {
 					return nil, nil
 				},
 				Registry:           registry.NewTypeRegistry(),
@@ -65,7 +65,7 @@ controlPlanes:
   name: local
 currentContext: local
 `
-		bytes, err := ioutil.ReadFile(config.DefaultConfigFile)
+		bytes, err := os.ReadFile(config.DefaultConfigFile)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(bytes).To(MatchYAML(expected))
 	})
@@ -74,7 +74,7 @@ currentContext: local
 		// given
 		rootCtx := &kumactl_cmd.RootContext{
 			Runtime: kumactl_cmd.RootRuntime{
-				NewBaseAPIServerClient: func(server *config_proto.ControlPlaneCoordinates_ApiServer) (util_http.Client, error) {
+				NewBaseAPIServerClient: func(server *config_proto.ControlPlaneCoordinates_ApiServer, _ time.Duration) (util_http.Client, error) {
 					return nil, nil
 				},
 				Registry:           registry.NewTypeRegistry(),

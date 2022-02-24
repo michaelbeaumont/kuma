@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/api/system/v1alpha1"
@@ -22,7 +22,6 @@ var _ = Describe("ZoneInsight Manager", func() {
 		// setup
 		s := memory.NewStore()
 		cfg := &kuma_cp.ZoneMetrics{
-			Enabled:           true,
 			SubscriptionLimit: 3,
 		}
 		manager := zoneinsight.NewZoneInsightManager(s, cfg)
@@ -52,11 +51,11 @@ var _ = Describe("ZoneInsight Manager", func() {
 		Expect(actual.Spec.Subscriptions[2].Id).To(Equal("9"))
 	})
 
-	It("should cleanup subscriptions if disabled", func() {
+	It("should cleanup subscriptions if limit is 0", func() {
 		// setup
 		s := memory.NewStore()
 		cfg := &kuma_cp.ZoneMetrics{
-			Enabled: false,
+			SubscriptionLimit: 0,
 		}
 		manager := zoneinsight.NewZoneInsightManager(s, cfg)
 

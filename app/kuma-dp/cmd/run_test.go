@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,14 +14,15 @@ import (
 	"strings"
 	"syscall"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	envoy_bootstrap_v3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/app/kuma-dp/pkg/dataplane/envoy"
 	kuma_cmd "github.com/kumahq/kuma/pkg/cmd"
 	kumadp "github.com/kumahq/kuma/pkg/config/app/kuma-dp"
 	"github.com/kumahq/kuma/pkg/test"
+	util_proto "github.com/kumahq/kuma/pkg/util/proto"
 )
 
 var _ = Describe("run", func() {
@@ -40,7 +40,7 @@ var _ = Describe("run", func() {
 	BeforeEach(func() {
 		ctx, cancel = context.WithCancel(context.Background())
 		var err error
-		tmpDir, err = ioutil.TempDir("", "")
+		tmpDir, err = os.MkdirTemp("", "")
 		Expect(err).ToNot(HaveOccurred())
 	})
 	AfterEach(func() {
@@ -95,12 +95,23 @@ var _ = Describe("run", func() {
 
 			// given
 			rootCtx := DefaultRootContext()
-			rootCtx.BootstrapGenerator = func(_ string, cfg kumadp.Config, _ envoy.BootstrapParams) ([]byte, error) {
-				respBytes, err := ioutil.ReadFile(filepath.Join("testdata", "bootstrap-config.golden.yaml"))
+			rootCtx.BootstrapGenerator = func(_ string, cfg kumadp.Config, _ envoy.BootstrapParams) (*envoy_bootstrap_v3.Bootstrap, []byte, error) {
+				respBytes, err := os.ReadFile(filepath.Join("testdata", "bootstrap-config.golden.yaml"))
 				Expect(err).ToNot(HaveOccurred())
-				return respBytes, nil
+				bootstrap := &envoy_bootstrap_v3.Bootstrap{}
+				if err := util_proto.FromYAML(respBytes, bootstrap); err != nil {
+					return nil, nil, err
+				}
+				return bootstrap, respBytes, nil
 			}
-			_, writer := io.Pipe()
+
+			reader, writer := io.Pipe()
+			go func() {
+				defer GinkgoRecover()
+				_, err := io.ReadAll(reader)
+				Expect(err).ToNot(HaveOccurred())
+			}()
+
 			cmd := NewRootCmd(opts, rootCtx)
 			cmd.SetArgs(append([]string{"run"}, given.args...))
 			cmd.SetOut(writer)
@@ -118,7 +129,7 @@ var _ = Describe("run", func() {
 			var pid int64
 			By("waiting for dataplane (Envoy) to get started")
 			Eventually(func() bool {
-				data, err := ioutil.ReadFile(pidFile)
+				data, err := os.ReadFile(pidFile)
 				if err != nil {
 					return false
 				}
@@ -130,7 +141,7 @@ var _ = Describe("run", func() {
 
 			By("verifying the arguments Envoy was launched with")
 			// when
-			cmdline, err := ioutil.ReadFile(cmdlineFile)
+			cmdline, err := os.ReadFile(cmdlineFile)
 			// then
 			Expect(err).ToNot(HaveOccurred())
 			// and

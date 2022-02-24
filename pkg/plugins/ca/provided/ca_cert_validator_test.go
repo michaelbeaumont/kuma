@@ -4,13 +4,12 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"io/ioutil"
 	"math/big"
+	"os"
 	"path/filepath"
 
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 
@@ -22,9 +21,9 @@ var _ = Describe("ValidateCaCert()", func() {
 
 	It("should accept proper CA certificates", func() {
 		// when
-		cert, err := ioutil.ReadFile(filepath.Join("testdata", "ca.pem"))
+		cert, err := os.ReadFile(filepath.Join("testdata", "ca.pem"))
 		Expect(err).ToNot(HaveOccurred())
-		key, err := ioutil.ReadFile(filepath.Join("testdata", "ca.key"))
+		key, err := os.ReadFile(filepath.Join("testdata", "ca.key"))
 		Expect(err).ToNot(HaveOccurred())
 
 		signingPair := &util_tls.KeyPair{

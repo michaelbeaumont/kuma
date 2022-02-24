@@ -19,6 +19,7 @@ import (
 	"github.com/kumahq/kuma/pkg/kds/util"
 	resources_k8s "github.com/kumahq/kuma/pkg/plugins/resources/k8s"
 	k8s_model "github.com/kumahq/kuma/pkg/plugins/resources/k8s/native/pkg/model"
+	zone_tokens "github.com/kumahq/kuma/pkg/tokens/builtin/zone"
 	"github.com/kumahq/kuma/pkg/tokens/builtin/zoneingress"
 )
 
@@ -29,9 +30,10 @@ var (
 func Setup(rt core_runtime.Runtime) error {
 	zone := rt.Config().Multizone.Zone.Name
 	reg := registry.Global()
+	kdsCtx := rt.KDSContext()
 	kdsServer, err := kds_server.New(kdsZoneLog, rt, reg.ObjectTypes(model.HasKDSFlag(model.ProvidedByZone)),
 		zone, rt.Config().Multizone.Zone.KDS.RefreshInterval,
-		rt.KDSContext().ZoneProvidedFilter, false)
+		kdsCtx.ZoneProvidedFilter, kdsCtx.ZoneResourceMapper, false)
 	if err != nil {
 		return err
 	}
@@ -90,11 +92,6 @@ func Callbacks(rt core_runtime.Runtime, syncer sync_store.ResourceSyncer, k8sSto
 					util.AddSuffixToNames(rs.GetItems(), "default")
 				}
 			}
-			if rs.GetItemType() == mesh.DataplaneType {
-				return syncer.Sync(rs, sync_store.PrefilterBy(func(r model.Resource) bool {
-					return r.(*mesh.DataplaneResource).Spec.IsZoneIngress(localZone)
-				}))
-			}
 			if rs.GetItemType() == mesh.ZoneIngressType {
 				return syncer.Sync(rs, sync_store.PrefilterBy(func(r model.Resource) bool {
 					return r.(*mesh.ZoneIngressResource).IsRemoteIngress(localZone)
@@ -107,7 +104,11 @@ func Callbacks(rt core_runtime.Runtime, syncer sync_store.ResourceSyncer, k8sSto
 			}
 			if rs.GetItemType() == system.GlobalSecretType {
 				return syncer.Sync(rs, sync_store.PrefilterBy(func(r model.Resource) bool {
-					return r.GetMeta().GetName() == zoneingress.SigningKeyResourceKey().Name
+					return util.ResourceNameHasAtLeastOneOfPrefixes(
+						r.GetMeta().GetName(),
+						zoneingress.ZoneIngressSigningKeyPrefix,
+						zone_tokens.SigningPublicKeyPrefix,
+					)
 				}))
 			}
 			return syncer.Sync(rs)

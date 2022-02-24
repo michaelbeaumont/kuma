@@ -1,8 +1,7 @@
 package v1alpha1_test
 
 import (
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	. "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -45,10 +44,8 @@ var _ = Describe("Dataplane_Networking", func() {
 			DescribeTable("should parse valid input values",
 				func(given testCase) {
 					// when
-					ofaces, err := given.input.GetOutboundInterfaces()
+					ofaces := given.input.GetOutboundInterfaces()
 					// then
-					Expect(err).ToNot(HaveOccurred())
-					// and
 					Expect(ofaces).To(Equal(given.expected))
 				},
 				Entry("nil", testCase{
@@ -364,7 +361,6 @@ var _ = Describe("Dataplane classification", func() {
 			}
 			Expect(dp.IsDelegatedGateway()).To(BeFalse())
 			Expect(dp.IsBuiltinGateway()).To(BeFalse())
-			Expect(dp.IsIngress()).To(BeFalse())
 		})
 	})
 
@@ -377,7 +373,6 @@ var _ = Describe("Dataplane classification", func() {
 			}
 			Expect(gw.IsDelegatedGateway()).To(BeTrue())
 			Expect(gw.IsBuiltinGateway()).To(BeFalse())
-			Expect(gw.IsIngress()).To(BeFalse())
 		})
 	})
 
@@ -392,7 +387,6 @@ var _ = Describe("Dataplane classification", func() {
 			}
 			Expect(gw.IsDelegatedGateway()).To(BeTrue())
 			Expect(gw.IsBuiltinGateway()).To(BeFalse())
-			Expect(gw.IsIngress()).To(BeFalse())
 		})
 	})
 
@@ -407,20 +401,6 @@ var _ = Describe("Dataplane classification", func() {
 			}
 			Expect(gw.IsDelegatedGateway()).To(BeFalse())
 			Expect(gw.IsBuiltinGateway()).To(BeTrue())
-			Expect(gw.IsIngress()).To(BeFalse())
-		})
-	})
-
-	Describe("with ingress networking", func() {
-		It("should be an ingress gateway", func() {
-			in := Dataplane{
-				Networking: &Dataplane_Networking{
-					Ingress: &Dataplane_Networking_Ingress{},
-				},
-			}
-			Expect(in.IsDelegatedGateway()).To(BeFalse())
-			Expect(in.IsBuiltinGateway()).To(BeFalse())
-			Expect(in.IsIngress()).To(BeTrue())
 		})
 	})
 })

@@ -5,13 +5,13 @@ import (
 	"strings"
 
 	"github.com/gruntwork-io/terratest/modules/retry"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 
 	"github.com/kumahq/kuma/pkg/config/core"
-	. "github.com/kumahq/kuma/test/e2e/trafficroute/testutil"
 	. "github.com/kumahq/kuma/test/framework"
+	. "github.com/kumahq/kuma/test/framework/client"
 )
 
 func UniversalDeployment() {
@@ -40,7 +40,6 @@ name: %s
 	const nonDefaultMesh = "non-default"
 
 	var global, zone1, zone2 Cluster
-	var optsGlobal, optsZone1, optsZone2 = KumaUniversalDeployOpts, KumaUniversalDeployOpts, KumaUniversalDeployOpts
 
 	BeforeEach(func() {
 		clusters, err := NewUniversalClusters(
@@ -51,12 +50,10 @@ name: %s
 		// Global
 		global = clusters.GetCluster(Kuma5)
 		err = NewClusterSetup().
-			Install(Kuma(core.Global, optsGlobal...)).
+			Install(Kuma(core.Global)).
 			Install(YamlUniversal(meshMTLSOn(nonDefaultMesh, "false"))).
 			Install(YamlUniversal(meshMTLSOff(defaultMesh))).
 			Setup(global)
-		Expect(err).ToNot(HaveOccurred())
-		err = global.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		globalCP := global.GetKuma()
@@ -72,38 +69,34 @@ name: %s
 
 		// Cluster 1
 		zone1 = clusters.GetCluster(Kuma3)
-		optsZone1 = append(optsZone1,
-			WithGlobalAddress(globalCP.GetKDSServerAddress()),
-			WithHDS(false))
 		ingressTokenKuma3, err := globalCP.GenerateZoneIngressToken(Kuma3)
 		Expect(err).ToNot(HaveOccurred())
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone1...)).
+			Install(Kuma(core.Zone,
+				WithGlobalAddress(globalCP.GetKDSServerAddress()),
+				WithHDS(false),
+			)).
 			Install(TestServerUniversal("test-server", nonDefaultMesh, testServerToken, WithArgs([]string{"echo", "--instance", "universal1"}))).
 			Install(DemoClientUniversal(AppModeDemoClient, nonDefaultMesh, demoClientToken, WithTransparentProxy(true))).
 			Install(IngressUniversal(ingressTokenKuma3)).
 			Setup(zone1)
 		Expect(err).ToNot(HaveOccurred())
-		err = zone1.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
 
 		// Cluster 2
 		zone2 = clusters.GetCluster(Kuma4)
-		optsZone2 = append(optsZone2,
-			WithGlobalAddress(globalCP.GetKDSServerAddress()),
-			WithHDS(false))
 		ingressTokenKuma4, err := globalCP.GenerateZoneIngressToken(Kuma4)
 		Expect(err).ToNot(HaveOccurred())
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone2...)).
+			Install(Kuma(core.Zone,
+				WithGlobalAddress(globalCP.GetKDSServerAddress()),
+				WithHDS(false),
+			)).
 			Install(TestServerUniversal("test-server", nonDefaultMesh, testServerToken, WithArgs([]string{"echo", "--instance", "universal2"}))).
 			Install(DemoClientUniversal(AppModeDemoClient, nonDefaultMesh, demoClientToken, WithTransparentProxy(true))).
 			Install(IngressUniversal(ingressTokenKuma4)).
 			Setup(zone2)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone2.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -111,17 +104,17 @@ name: %s
 		if ShouldSkipCleanup() {
 			return
 		}
-		err := zone1.DeleteKuma(optsZone1...)
+		err := zone1.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 		err = zone1.DismissCluster()
 		Expect(err).ToNot(HaveOccurred())
 
-		err = zone2.DeleteKuma(optsZone2...)
+		err = zone2.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 		err = zone2.DismissCluster()
 		Expect(err).ToNot(HaveOccurred())
 
-		err = global.DeleteKuma(optsGlobal...)
+		err = global.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 		err = global.DismissCluster()
 		Expect(err).ToNot(HaveOccurred())

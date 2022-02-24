@@ -3,6 +3,7 @@ package api_server_test
 import (
 	"bytes"
 	"context"
+	"net"
 	"net/http"
 	"path/filepath"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/kumahq/kuma/pkg/api-server/customization"
 	config_api_server "github.com/kumahq/kuma/pkg/config/api-server"
 	kuma_cp "github.com/kumahq/kuma/pkg/config/app/kuma-cp"
+	config_manager "github.com/kumahq/kuma/pkg/core/config/manager"
 	resources_access "github.com/kumahq/kuma/pkg/core/resources/access"
 	"github.com/kumahq/kuma/pkg/core/resources/manager"
 	"github.com/kumahq/kuma/pkg/core/resources/model"
@@ -19,11 +21,16 @@ import (
 	"github.com/kumahq/kuma/pkg/core/resources/registry"
 	"github.com/kumahq/kuma/pkg/core/resources/store"
 	"github.com/kumahq/kuma/pkg/core/runtime"
+	"github.com/kumahq/kuma/pkg/dns/vips"
+	"github.com/kumahq/kuma/pkg/envoy/admin/access"
 	core_metrics "github.com/kumahq/kuma/pkg/metrics"
 	"github.com/kumahq/kuma/pkg/plugins/authn/api-server/certs"
 	"github.com/kumahq/kuma/pkg/test"
 	sample_proto "github.com/kumahq/kuma/pkg/test/apis/sample/v1alpha1"
 	sample_model "github.com/kumahq/kuma/pkg/test/resources/apis/sample"
+	test_runtime "github.com/kumahq/kuma/pkg/test/runtime"
+	xds_context "github.com/kumahq/kuma/pkg/xds/context"
+	"github.com/kumahq/kuma/pkg/xds/server"
 )
 
 type resourceApiClient struct {
@@ -103,7 +110,15 @@ func putSampleResourceIntoStore(resourceStore store.ResourceStore, name string, 
 	Expect(err).NotTo(HaveOccurred())
 }
 
-func createTestApiServer(store store.ResourceStore, config *config_api_server.ApiServerConfig, enableGUI bool, metrics core_metrics.Metrics) *api_server.ApiServer {
+type configModifier func(config *kuma_cp.Config)
+
+func createTestApiServer(
+	store store.ResourceStore,
+	config *config_api_server.ApiServerConfig,
+	enableGUI bool,
+	metrics core_metrics.Metrics,
+	modifiers ...configModifier,
+) *api_server.ApiServer {
 	// we have to manually search for port and put it into config. There is no way to retrieve port of running
 	// http.Server and we need it later for the client
 	port, err := test.GetFreePort()
@@ -121,8 +136,20 @@ func createTestApiServer(store store.ResourceStore, config *config_api_server.Ap
 
 	cfg := kuma_cp.DefaultConfig()
 	cfg.ApiServer = config
+	for _, modifier := range modifiers {
+		modifier(&cfg)
+	}
+
 	apiServer, err := api_server.NewApiServer(
 		manager.NewResourceManager(store),
+		xds_context.NewMeshContextBuilder(
+			manager.NewResourceManager(store),
+			server.MeshResourceTypes(server.HashMeshExcludedResources),
+			net.LookupIP,
+			cfg.Multizone.Zone.Name,
+			vips.NewPersistence(manager.NewResourceManager(store), config_manager.NewConfigManager(store)),
+			cfg.DNSServer.Domain,
+		),
 		customization.NewAPIList(),
 		append(registry.Global().ObjectDescriptors(model.HasWsEnabled()), sample_model.TrafficRouteResourceTypeDescriptor),
 		&cfg,
@@ -134,7 +161,9 @@ func createTestApiServer(store store.ResourceStore, config *config_api_server.Ap
 		runtime.Access{
 			ResourceAccess:       resources_access.NewAdminResourceAccess(cfg.Access.Static.AdminResources),
 			DataplaneTokenAccess: nil,
+			ConfigDumpAccess:     access.NewStaticConfigDumpAccess(cfg.Access.Static.ViewConfigDump),
 		},
+		&test_runtime.DummyEnvoyAdminClient{},
 	)
 	Expect(err).ToNot(HaveOccurred())
 	return apiServer

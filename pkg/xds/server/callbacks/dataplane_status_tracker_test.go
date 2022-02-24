@@ -6,8 +6,7 @@ import (
 	envoy_core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_sd "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	envoy_server "github.com/envoyproxy/go-control-plane/pkg/server/v3"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	status "google.golang.org/genproto/googleapis/rpc/status"
@@ -190,7 +189,7 @@ var _ = Describe("DataplaneStatusTracker", func() {
 				TypeUrl: given.TypeUrl,
 				Nonce:   "1",
 			}
-			callbacks.OnStreamResponse(streamID, discoveryRequest, discoveryResponse)
+			callbacks.OnStreamResponse(context.TODO(), streamID, discoveryRequest, discoveryResponse)
 			// and
 			key, subscription = accessor.GetStatus()
 			// then

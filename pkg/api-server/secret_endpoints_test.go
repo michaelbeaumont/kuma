@@ -2,11 +2,11 @@ package api_server_test
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"time"
 
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	system_proto "github.com/kumahq/kuma/api/system/v1alpha1"
@@ -47,7 +47,7 @@ var _ = Describe("Secret Endpoints", func() {
 			Expect(err).ToNot(HaveOccurred())
 		}()
 		waitForServer(&client)
-	}, 5)
+	})
 
 	AfterEach(func() {
 		close(stop)
@@ -92,7 +92,7 @@ var _ = Describe("Secret Endpoints", func() {
 			// then
 			Expect(response.StatusCode).To(Equal(200))
 			// when
-			body, err := ioutil.ReadAll(response.Body)
+			body, err := io.ReadAll(response.Body)
 			// then
 			Expect(err).ToNot(HaveOccurred())
 

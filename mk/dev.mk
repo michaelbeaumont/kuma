@@ -1,17 +1,18 @@
-GINKGO_VERSION := v1.16.4
-GOLANGCI_LINT_VERSION := v1.41.1
+GINKGO_VERSION := v2.1.3
+GOLANGCI_LINT_VERSION := v1.43.0
 GOLANG_PROTOBUF_VERSION := v1.5.2
-HELM_DOCS_VERSION := 1.4.0
-KUSTOMIZE_VERSION := v4.1.3
+HELM_DOCS_VERSION := 1.5.0
+KUSTOMIZE_VERSION := v4.4.1
 PROTOC_PGV_VERSION := v0.4.1
 PROTOC_VERSION := 3.14.0
 UDPA_LATEST_VERSION := main
 GOOGLEAPIS_LATEST_VERSION := master
 KUMADOC_VERSION := v0.1.7
 DATAPLANE_API_LATEST_VERSION := main
+SHELLCHECK_VERSION := v0.8.0
 
 CI_KUBEBUILDER_VERSION ?= 2.3.2
-CI_MINIKUBE_VERSION ?= v1.18.1
+CI_MINIKUBE_VERSION ?= v1.24.0
 CI_KUBECTL_VERSION ?= v1.18.14
 
 CI_TOOLS_DIR ?= $(HOME)/bin
@@ -34,6 +35,7 @@ KUBE_APISERVER_PATH := $(CI_TOOLS_DIR)/kube-apiserver
 ETCD_PATH := $(CI_TOOLS_DIR)/etcd
 GOLANGCI_LINT_DIR := $(CI_TOOLS_DIR)
 HELM_DOCS_PATH := $(CI_TOOLS_DIR)/helm-docs
+SHELLCHECK_PATH := $(CI_TOOLS_DIR)/shellcheck
 
 TOOLS_DIR ?= $(shell pwd)/tools
 
@@ -44,9 +46,11 @@ UNAME_S := $(shell uname -s)
 UNAME_ARCH := $(shell uname -m)
 ifeq ($(UNAME_S), Linux)
 	PROTOC_OS=linux
+	SHELLCHECK_OS=linux
 else
 	ifeq ($(UNAME_S), Darwin)
 		PROTOC_OS=osx
+		SHELLCHECK_OS=darwin
 	endif
 endif
 
@@ -76,7 +80,8 @@ dev/tools/all: dev/install/protoc dev/install/protobuf-wellknown-types \
 	dev/install/golangci-lint \
 	dev/install/helm3 \
 	dev/install/helm-docs \
-	dev/install/data-plane-api
+	dev/install/data-plane-api \
+	dev/install/shellcheck
 
 .PHONY: dev/install/protoc-gen-kumadoc
 dev/install/protoc-gen-kumadoc:
@@ -132,7 +137,7 @@ dev/install/protoc-gen-validate: ## Bootstrap: Install Protoc Gen Validate Plugi
 dev/install/ginkgo: ## Bootstrap: Install Ginkgo (BDD testing framework)
 	# see https://github.com/onsi/ginkgo#set-me-up
 	echo "Installing Ginkgo ..."
-	go install github.com/onsi/ginkgo/ginkgo@$(GINKGO_VERSION)  # installs the ginkgo CLI
+	go install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)  # installs the ginkgo CLI
 	echo "Ginkgo has been installed at $(GOPATH_BIN_DIR)/ginkgo"
 
 .PHONY: dev/install/kubebuilder
@@ -147,7 +152,7 @@ dev/install/kubebuilder: ## Bootstrap: Install Kubebuilder (including etcd and k
 		&& mkdir -p $(KUBEBUILDER_DIR) \
 		&& cp -r /tmp/kubebuilder_$(CI_KUBEBUILDER_VERSION)_$(GOOS)_$(GOARCH)/* $(KUBEBUILDER_DIR) \
 		&& rm -rf /tmp/kubebuilder_$(CI_KUBEBUILDER_VERSION)_$(GOOS)_$(GOARCH) \
-        && for tool in $$( ls $(KUBEBUILDER_DIR)/bin ) ; do if [ ! -e $(CI_TOOLS_DIR)/$${tool} ]; then ln -s $(KUBEBUILDER_DIR)/bin/$${tool} $(CI_TOOLS_DIR)/$${tool} ; echo "Installed $(CI_TOOLS_DIR)/$${tool}" ; else echo "$(CI_TOOLS_DIR)/$${tool} already exists" ; fi; done \
+		&& for tool in $$( ls $(KUBEBUILDER_DIR)/bin ) ; do if [ ! -e $(CI_TOOLS_DIR)/$${tool} ]; then ln -s $(KUBEBUILDER_DIR)/bin/$${tool} $(CI_TOOLS_DIR)/$${tool} ; echo "Installed $(CI_TOOLS_DIR)/$${tool}" ; else echo "$(CI_TOOLS_DIR)/$${tool} already exists" ; fi; done \
 		&& set +x \
 		&& echo "Kubebuilder $(CI_KUBEBUILDER_VERSION) has been installed at $(KUBEBUILDER_PATH)" ; fi
 
@@ -196,15 +201,15 @@ dev/install/kind: ## Bootstrap: Install KIND (Kubernetes in Docker)
 .PHONY: dev/install/k3d
 dev/install/k3d: ## Bootstrap: Install K3D (K3s in Docker)
 	# see https://raw.githubusercontent.com/rancher/k3d/main/install.sh
-	@if [ -e $(K3D_PATH) ]; then echo "K3d $$( $(K3D_PATH) version ) is already installed at $(K3D_PATH)" ; fi
-	@if [ ! -e $(K3D_PATH) ]; then \
-		echo "Installing Kind $(CI_K3D_VERSION) ..." \
+	@if [ ! -e $(CI_TOOLS_DIR)/k3d ] || [ `$(CI_TOOLS_DIR)/k3d version | head -1 | awk '{ print $$3 }'` != "$(CI_K3D_VERSION)" ]; then \
+		echo "Installing K3d $(CI_K3D_VERSION) ..." \
 		&& set -x \
 		&& mkdir -p $(CI_TOOLS_DIR) \
 		&& $(CURL_DOWNLOAD) https://raw.githubusercontent.com/rancher/k3d/main/install.sh | \
 		        TAG=$(CI_K3D_VERSION) USE_SUDO="false" K3D_INSTALL_DIR="$(CI_TOOLS_DIR)" bash \
 		&& set +x \
-		&& echo "K3d $(CI_K3D_VERSION) has been installed at $(K3D_PATH)" ; fi
+		&& echo "K3d $(CI_K3D_VERSION) has been installed at $(CI_TOOLS_DIR)/k3d" ; \
+	else echo "K3d version: \"$$( $(CI_TOOLS_DIR)/k3d version )\" is already installed at $(CI_TOOLS_DIR)/k3d"; fi
 
 
 .PHONY: dev/install/minikube
@@ -224,6 +229,24 @@ dev/install/minikube: ## Bootstrap: Install Minikube
 .PHONY: dev/install/golangci-lint
 dev/install/golangci-lint: ## Bootstrap: Install golangci-lint
 	$(CURL_DOWNLOAD) https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(GOLANGCI_LINT_DIR) $(GOLANGCI_LINT_VERSION)
+
+SHELLCHECK_ARCHIVE := "shellcheck-$(SHELLCHECK_VERSION).$(SHELLCHECK_OS).$(UNAME_ARCH).tar.xz"
+
+.PHONY: dev/install/shellcheck
+dev/install/shellcheck:
+	@if [ -e $(SHELLCHECK_PATH) ]; then echo "Shellcheck $$( $(SHELLCHECK_PATH) --version ) is already installed at $(SHELLCHECK_PATH)" ; fi
+	@if [ ! -e $(SHELLCHECK_PATH) ]; then \
+		echo "Installing shellcheck $(SHELLCHECK_VERSION) ..." \
+		&& set -x \
+		&& $(CURL_DOWNLOAD) -o shellcheck.tar.xz https://github.com/koalaman/shellcheck/releases/download/$(SHELLCHECK_VERSION)/$(SHELLCHECK_ARCHIVE) \
+		&& tar -xf shellcheck.tar.xz shellcheck-$(SHELLCHECK_VERSION)/shellcheck \
+		&& rm shellcheck.tar.xz \
+		&& mkdir -p $(CI_TOOLS_DIR) \
+		&& mv shellcheck-$(SHELLCHECK_VERSION)/shellcheck $(SHELLCHECK_PATH) \
+		&& chmod +x $(SHELLCHECK_PATH) \
+		&& rmdir shellcheck-$(SHELLCHECK_VERSION) \
+		&& set +x \
+		&& echo "Shellcheck $(SHELLCHECK_VERSION) has been installed at $(SHELLCHECK_PATH)" ; fi
 
 .PHONY: dev/install/helm3
 dev/install/helm3: ## Bootstrap: Install Helm 3
@@ -281,4 +304,5 @@ dev/envrc: $(KUBECONFIG_DIR)/kind-kuma-current ## Generate .envrc
 	@for prog in $(BUILD_RELEASE_BINARIES) $(BUILD_TEST_BINARIES) ; do \
 		echo "PATH_add $(BUILD_ARTIFACTS_DIR)/$$prog" ; \
 	done >> .envrc
+	@echo 'export KUBEBUILDER_ASSETS=$${CI_TOOLS_DIR}' >> .envrc
 	@direnv allow

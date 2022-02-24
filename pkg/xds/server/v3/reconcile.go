@@ -1,6 +1,8 @@
 package v3
 
 import (
+	"context"
+
 	envoy_core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_types "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoy_cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -37,33 +39,70 @@ func (r *reconciler) Reconcile(ctx xds_context.Context, proxy *model.Proxy) erro
 	node := &envoy_core.Node{Id: proxy.Id.String()}
 	snapshot, err := r.generator.GenerateSnapshot(ctx, proxy)
 	if err != nil {
-		reconcileLog.Error(err, "failed to generate a snapshot", "node", node, "proxy", proxy)
-		return err
+		return errors.Wrapf(err, "failed to generate a snapshot")
 	}
-	if err := snapshot.Consistent(); err != nil {
-		reconcileLog.Error(err, "inconsistent snapshot", "snapshot", snapshot, "proxy", proxy)
-	}
-	// to avoid assigning a new version every time,
-	// compare with the previous snapshot and reuse its version whenever possible,
+
+	// To avoid assigning a new version every time, compare with
+	// the previous snapshot and reuse its version whenever possible,
 	// fallback to UUID otherwise
 	previous, err := r.cacher.Get(node)
 	if err != nil {
 		previous = envoy_cache.Snapshot{}
 	}
-	snapshot = r.autoVersion(previous, snapshot)
-	if err := r.cacher.Cache(node, snapshot); err != nil {
-		reconcileLog.Error(err, "failed to store snapshot", "snapshot", snapshot, "proxy", proxy)
+
+	snapshot, changed := autoVersion(previous, snapshot)
+
+	// Validate the resources we reconciled before sending them
+	// to Envoy. This ensures that we have as much in-band error
+	// information as possible, which is especially useful for tests
+	// that don't actually program an Envoy instance.
+	if changed {
+		for _, resources := range snapshot.Resources {
+			for name, resource := range resources.Items {
+				if err := validateResource(resource.Resource); err != nil {
+					return errors.Wrapf(err, "invalid resource %q", name)
+				}
+			}
+		}
+
+		if err := snapshot.Consistent(); err != nil {
+			reconcileLog.Error(err, "inconsistent snapshot", "snapshot", snapshot, "proxy", proxy)
+			return errors.Wrap(err, "inconsistent snapshot")
+		}
 	}
+
+	if err := r.cacher.Cache(node, snapshot); err != nil {
+		return errors.Wrap(err, "failed to store snapshot")
+	}
+
 	return nil
 }
 
-func (r *reconciler) autoVersion(old envoy_cache.Snapshot, new envoy_cache.Snapshot) envoy_cache.Snapshot {
-	new.Resources[envoy_types.Listener] = reuseVersion(old.Resources[envoy_types.Listener], new.Resources[envoy_types.Listener])
-	new.Resources[envoy_types.Route] = reuseVersion(old.Resources[envoy_types.Route], new.Resources[envoy_types.Route])
-	new.Resources[envoy_types.Cluster] = reuseVersion(old.Resources[envoy_types.Cluster], new.Resources[envoy_types.Cluster])
-	new.Resources[envoy_types.Endpoint] = reuseVersion(old.Resources[envoy_types.Endpoint], new.Resources[envoy_types.Endpoint])
-	new.Resources[envoy_types.Secret] = reuseVersion(old.Resources[envoy_types.Secret], new.Resources[envoy_types.Secret])
-	return new
+func validateResource(r envoy_types.Resource) error {
+	switch v := r.(type) {
+	// Newer go-control-plane versions have `ValidateAll()` method, that accumulates as many validation errors as possible.
+	case interface{ ValidateAll() error }:
+		return v.ValidateAll()
+	// Older go-control-plane stops validation at the first error.
+	case interface{ Validate() error }:
+		return v.Validate()
+	default:
+		return nil
+	}
+}
+
+func autoVersion(old envoy_cache.Snapshot, new envoy_cache.Snapshot) (envoy_cache.Snapshot, bool) {
+	for resourceType, resources := range old.Resources {
+		new.Resources[resourceType] = reuseVersion(resources, new.Resources[resourceType])
+	}
+
+	for resourceType, resource := range new.Resources {
+		if old.Resources[resourceType].Version != resource.Version {
+			return new, true
+		}
+	}
+
+	return new, false
 }
 
 func reuseVersion(old, new envoy_cache.Resources) envoy_cache.Resources {
@@ -74,7 +113,7 @@ func reuseVersion(old, new envoy_cache.Resources) envoy_cache.Resources {
 	return new
 }
 
-func equalSnapshots(old, new map[string]envoy_types.ResourceWithTtl) bool {
+func equalSnapshots(old, new map[string]envoy_types.ResourceWithTTL) bool {
 	if len(new) != len(old) {
 		return false
 	}
@@ -112,17 +151,13 @@ func (s *templateSnapshotGenerator) GenerateSnapshot(ctx xds_context.Context, pr
 	}
 
 	version := "" // empty value is a sign to other components to generate the version automatically
-	out := envoy_cache.Snapshot{
-		Resources: [envoy_types.UnknownType]envoy_cache.Resources{
-			envoy_types.Endpoint: envoy_cache.NewResources(version, rs.ListOf(envoy_resource.EndpointType).Payloads()),
-			envoy_types.Cluster:  envoy_cache.NewResources(version, rs.ListOf(envoy_resource.ClusterType).Payloads()),
-			envoy_types.Route:    envoy_cache.NewResources(version, rs.ListOf(envoy_resource.RouteType).Payloads()),
-			envoy_types.Listener: envoy_cache.NewResources(version, rs.ListOf(envoy_resource.ListenerType).Payloads()),
-			envoy_types.Secret:   envoy_cache.NewResources(version, rs.ListOf(envoy_resource.SecretType).Payloads()),
-		},
+	resources := map[envoy_resource.Type][]envoy_types.Resource{}
+
+	for _, resourceType := range rs.ResourceTypes() {
+		resources[resourceType] = append(resources[resourceType], rs.ListOf(resourceType).Payloads()...)
 	}
 
-	return out, nil
+	return envoy_cache.NewSnapshot(version, resources)
 }
 
 type snapshotCacher interface {
@@ -141,7 +176,7 @@ func (s *simpleSnapshotCacher) Get(node *envoy_core.Node) (envoy_cache.Snapshot,
 }
 
 func (s *simpleSnapshotCacher) Cache(node *envoy_core.Node, snapshot envoy_cache.Snapshot) error {
-	return s.store.SetSnapshot(s.hasher.ID(node), snapshot)
+	return s.store.SetSnapshot(context.TODO(), s.hasher.ID(node), snapshot)
 }
 
 func (s *simpleSnapshotCacher) Clear(node *envoy_core.Node) {

@@ -5,7 +5,7 @@ import (
 
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_service_health_v3 "github.com/envoyproxy/go-control-plane/envoy/service/health/v3"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/metadata"
@@ -130,7 +130,7 @@ var _ = Describe("Authn Callbacks", func() {
 		})
 
 		// then
-		Expect(err).To(MatchError("retryable: dataplane not found. Create Dataplane in Kuma CP first or pass it as an argument to kuma-dp"))
+		Expect(err).To(MatchError("dataplane not found. Create Dataplane in Kuma CP first or pass it as an argument to kuma-dp"))
 	})
 
 	It("should throw an error on authentication fail", func() {

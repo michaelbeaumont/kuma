@@ -1,12 +1,11 @@
 package generator_test
 
 import (
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -59,7 +58,7 @@ var _ = Describe("InboundProxyGenerator", func() {
 			}
 
 			dataplane := mesh_proto.Dataplane{}
-			dpBytes, err := ioutil.ReadFile(filepath.Join("testdata", "inbound-proxy", given.dataplaneFile))
+			dpBytes, err := os.ReadFile(filepath.Join("testdata", "inbound-proxy", given.dataplaneFile))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(util_proto.FromYAML(dpBytes, &dataplane)).To(Succeed())
 			proxy := &model.Proxy{
@@ -112,7 +111,7 @@ var _ = Describe("InboundProxyGenerator", func() {
 							DataplanePort:         80,
 							WorkloadIP:            "127.0.0.1",
 							WorkloadPort:          8080,
-						}: []*mesh_proto.FaultInjection{{
+						}: []*core_mesh.FaultInjectionResource{{Spec: &mesh_proto.FaultInjection{
 							Sources: []*mesh_proto.Selector{
 								{
 									Match: map[string]string{
@@ -133,18 +132,18 @@ var _ = Describe("InboundProxyGenerator", func() {
 									Value:      util_proto.Duration(time.Second * 5),
 								},
 							},
-						}},
+						}}},
 					},
-					RateLimits: model.RateLimitsMap{
-						Inbound: model.InboundRateLimitsMap{
-							mesh_proto.InboundInterface{
-								DataplaneAdvertisedIP: "192.168.0.1",
-								DataplaneIP:           "192.168.0.1",
-								DataplanePort:         80,
-								WorkloadIP:            "127.0.0.1",
-								WorkloadPort:          8080,
-							}: []*mesh_proto.RateLimit{
-								{
+					RateLimitsInbound: model.InboundRateLimitsMap{
+						mesh_proto.InboundInterface{
+							DataplaneAdvertisedIP: "192.168.0.1",
+							DataplaneIP:           "192.168.0.1",
+							DataplanePort:         80,
+							WorkloadIP:            "127.0.0.1",
+							WorkloadPort:          8080,
+						}: []*core_mesh.RateLimitResource{
+							{
+								Spec: &mesh_proto.RateLimit{
 									Sources: []*mesh_proto.Selector{
 										{
 											Match: map[string]string{
@@ -166,7 +165,9 @@ var _ = Describe("InboundProxyGenerator", func() {
 										},
 									},
 								},
-								{
+							},
+							{
+								Spec: &mesh_proto.RateLimit{
 									Sources: []*mesh_proto.Selector{
 										{
 											Match: map[string]string{

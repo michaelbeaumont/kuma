@@ -4,7 +4,7 @@ import (
 	"time"
 
 	envoy_resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	. "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -152,21 +152,20 @@ var _ = Describe("DataplaneHelpers", func() {
 			})
 		})
 
-		Describe("GetLatestSubscription()", func() {
+		Describe("GetLastSubscription()", func() {
 
 			It("should return `nil` when there are no subscriptions", func() {
 				// given
 				status.Subscriptions = nil
 
 				// when
-				subscription, connectTime := status.GetLatestSubscription()
+				subscription := status.GetLastSubscription()
 
 				// then
 				Expect(subscription).To(BeNil())
-				Expect(connectTime).To(BeNil())
 			})
 
-			It("should return subscription with the most recent `ConnectTime`", func() {
+			It("should return last subscription", func() {
 				// given
 				status.Subscriptions = []*DiscoverySubscription{
 					{
@@ -184,11 +183,11 @@ var _ = Describe("DataplaneHelpers", func() {
 				}
 
 				// when
-				subscription, connectTime := status.GetLatestSubscription()
+				subscription := status.GetLastSubscription()
 
 				// then
-				Expect(subscription).To(BeIdenticalTo(status.Subscriptions[1]))
-				Expect(*connectTime).To(BeTemporally("==", t3))
+				Expect(subscription).To(BeIdenticalTo(status.Subscriptions[2]))
+				Expect(subscription.GetId()).To(Equal("2"))
 			})
 		})
 
@@ -328,4 +327,39 @@ var _ = Describe("DataplaneHelpers", func() {
 			})
 		})
 	})
+
+	type testCase struct {
+		inputVersion    string
+		expectedVersion string
+		expectedLabel   string
+	}
+	DescribeTable("Envoy.ParseVersion",
+		func(given testCase) {
+			actualVersion, actualLabel := (&EnvoyVersion{
+				Version: given.inputVersion,
+			}).ParseVersion()
+			Expect(actualVersion).To(Equal(given.expectedVersion))
+			Expect(actualLabel).To(Equal(given.expectedLabel))
+		},
+		Entry("empty", testCase{
+			inputVersion:    "",
+			expectedVersion: "",
+			expectedLabel:   "",
+		}),
+		Entry("no label", testCase{
+			inputVersion:    "1.20.0",
+			expectedVersion: "1.20.0",
+			expectedLabel:   "",
+		}),
+		Entry("simple label", testCase{
+			inputVersion:    "1.20.0-dev",
+			expectedVersion: "1.20.0",
+			expectedLabel:   "dev",
+		}),
+		Entry("label with dashes", testCase{
+			inputVersion:    "1.20.0-super-dev",
+			expectedVersion: "1.20.0",
+			expectedLabel:   "super-dev",
+		}),
+	)
 })

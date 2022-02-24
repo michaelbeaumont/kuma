@@ -5,21 +5,22 @@ import (
 	envoy_tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	envoy_type_matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 
+	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	"github.com/kumahq/kuma/pkg/tls"
 	util_proto "github.com/kumahq/kuma/pkg/util/proto"
-	xds_context "github.com/kumahq/kuma/pkg/xds/context"
+	"github.com/kumahq/kuma/pkg/xds/envoy/names"
 	xds_tls "github.com/kumahq/kuma/pkg/xds/envoy/tls"
 )
 
 // CreateDownstreamTlsContext creates DownstreamTlsContext for incoming connections
 // It verifies that incoming connection has TLS certificate signed by Mesh CA with URI SAN of prefix spiffe://{mesh_name}/
 // It secures inbound listener with certificate of "identity_cert" that will be received from the SDS (it contains URI SANs of all inbounds).
-func CreateDownstreamTlsContext(ctx xds_context.Context) (*envoy_tls.DownstreamTlsContext, error) {
-	if !ctx.Mesh.Resource.MTLSEnabled() {
+func CreateDownstreamTlsContext(mesh *core_mesh.MeshResource) (*envoy_tls.DownstreamTlsContext, error) {
+	if !mesh.MTLSEnabled() {
 		return nil, nil
 	}
-	validationSANMatcher := MeshSpiffeIDPrefixMatcher(ctx.Mesh.Resource.Meta.GetName())
-	commonTlsContext, err := createCommonTlsContext(validationSANMatcher)
+	validationSANMatcher := MeshSpiffeIDPrefixMatcher(mesh.Meta.GetName())
+	commonTlsContext, err := createCommonTlsContext(mesh, validationSANMatcher)
 	if err != nil {
 		return nil, err
 	}
@@ -36,17 +37,18 @@ func CreateDownstreamTlsContext(ctx xds_context.Context) (*envoy_tls.DownstreamT
 // There is no way to correlate incoming request to "web" or "web-api" with outgoing request to "backend" to expose only one URI SAN.
 //
 // Pass "*" for upstreamService to validate that upstream service is a service that is part of the mesh (but not specific one)
-func CreateUpstreamTlsContext(ctx xds_context.Context, upstreamService string, sni string) (*envoy_tls.UpstreamTlsContext, error) {
-	if !ctx.Mesh.Resource.MTLSEnabled() {
+func CreateUpstreamTlsContext(mesh *core_mesh.MeshResource, upstreamService string, sni string) (*envoy_tls.UpstreamTlsContext, error) {
+	if !mesh.MTLSEnabled() {
 		return nil, nil
 	}
 	var validationSANMatcher *envoy_type_matcher.StringMatcher
+	meshName := mesh.Meta.GetName()
 	if upstreamService == "*" {
-		validationSANMatcher = MeshSpiffeIDPrefixMatcher(ctx.Mesh.Resource.Meta.GetName())
+		validationSANMatcher = MeshSpiffeIDPrefixMatcher(meshName)
 	} else {
-		validationSANMatcher = ServiceSpiffeIDMatcher(ctx.Mesh.Resource.Meta.GetName(), upstreamService)
+		validationSANMatcher = ServiceSpiffeIDMatcher(meshName, upstreamService)
 	}
-	commonTlsContext, err := createCommonTlsContext(validationSANMatcher)
+	commonTlsContext, err := createCommonTlsContext(mesh, validationSANMatcher)
 	if err != nil {
 		return nil, err
 	}
@@ -57,9 +59,11 @@ func CreateUpstreamTlsContext(ctx xds_context.Context, upstreamService string, s
 	}, nil
 }
 
-func createCommonTlsContext(validationSANMatcher *envoy_type_matcher.StringMatcher) (*envoy_tls.CommonTlsContext, error) {
-	meshCaSecret := NewSecretConfigSource(xds_tls.MeshCaResource)
-	identitySecret := NewSecretConfigSource(xds_tls.IdentityCertResource)
+func createCommonTlsContext(mesh *core_mesh.MeshResource, validationSANMatcher *envoy_type_matcher.StringMatcher) (*envoy_tls.CommonTlsContext, error) {
+	meshName := mesh.GetMeta().GetName()
+	meshCaSecret := NewSecretConfigSource(names.GetSecretName(xds_tls.MeshCaResource, "secret", meshName))
+	identitySecret := NewSecretConfigSource(names.GetSecretName(xds_tls.IdentityCertResource, "secret", meshName))
+
 	return &envoy_tls.CommonTlsContext{
 		ValidationContextType: &envoy_tls.CommonTlsContext_CombinedValidationContext{
 			CombinedValidationContext: &envoy_tls.CommonTlsContext_CombinedCertificateValidationContext{
@@ -86,19 +90,26 @@ func NewSecretConfigSource(secretName string) *envoy_tls.SdsSecretConfig {
 }
 
 func UpstreamTlsContextOutsideMesh(ca, cert, key []byte, allowRenegotiation bool, hostname string, sni string) (*envoy_tls.UpstreamTlsContext, error) {
-	var tlsCertificates []*envoy_tls.TlsCertificate
+	tlsContext := &envoy_tls.UpstreamTlsContext{
+		AllowRenegotiation: allowRenegotiation,
+		Sni:                sni,
+	}
 	if cert != nil && key != nil {
-		tlsCertificates = []*envoy_tls.TlsCertificate{
-			{
-				CertificateChain: dataSourceFromBytes(cert),
-				PrivateKey:       dataSourceFromBytes(key),
+		tlsContext.CommonTlsContext = &envoy_tls.CommonTlsContext{
+			TlsCertificates: []*envoy_tls.TlsCertificate{
+				{
+					CertificateChain: dataSourceFromBytes(cert),
+					PrivateKey:       dataSourceFromBytes(key),
+				},
 			},
 		}
 	}
 
-	var validationContextType *envoy_tls.CommonTlsContext_ValidationContext
 	if ca != nil {
-		validationContextType = &envoy_tls.CommonTlsContext_ValidationContext{
+		if tlsContext.CommonTlsContext == nil {
+			tlsContext.CommonTlsContext = &envoy_tls.CommonTlsContext{}
+		}
+		tlsContext.CommonTlsContext.ValidationContextType = &envoy_tls.CommonTlsContext_ValidationContext{
 			ValidationContext: &envoy_tls.CertificateValidationContext{
 				TrustedCa: dataSourceFromBytes(ca),
 				MatchSubjectAltNames: []*envoy_type_matcher.StringMatcher{
@@ -111,15 +122,7 @@ func UpstreamTlsContextOutsideMesh(ca, cert, key []byte, allowRenegotiation bool
 			},
 		}
 	}
-
-	return &envoy_tls.UpstreamTlsContext{
-		AllowRenegotiation: allowRenegotiation,
-		Sni:                sni,
-		CommonTlsContext: &envoy_tls.CommonTlsContext{
-			TlsCertificates:       tlsCertificates,
-			ValidationContextType: validationContextType,
-		},
-	}, nil
+	return tlsContext, nil
 }
 
 func dataSourceFromBytes(bytes []byte) *envoy_core.DataSource {

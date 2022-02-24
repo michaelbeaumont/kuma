@@ -2,6 +2,7 @@ package xds
 
 import (
 	"strconv"
+	"strings"
 
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -17,8 +18,6 @@ var metadataLog = core.Log.WithName("xds-server").WithName("metadata-tracker")
 
 const (
 	// Supported Envoy node metadata fields.
-
-	fieldDataplaneToken             = "dataplane.token"
 	fieldDataplaneAdminPort         = "dataplane.admin.port"
 	fieldDataplaneDNSPort           = "dataplane.dns.port"
 	fieldDataplaneDNSEmptyPort      = "dataplane.dns.empty.port"
@@ -26,11 +25,12 @@ const (
 	fieldDynamicMetadata            = "dynamicMetadata"
 	fieldDataplaneProxyType         = "dataplane.proxyType"
 	fieldVersion                    = "version"
+	FieldPrefixDependenciesVersion  = "version.dependencies"
 )
 
 // DataplaneMetadata represents environment-specific part of a dataplane configuration.
 //
-// This information might change from one dataplane run to another
+// This information might change from one dataplane run to another,
 // and therefore it cannot be a part of Dataplane resource.
 //
 // On start-up, a dataplane captures its effective configuration (that might come
@@ -43,7 +43,6 @@ const (
 // This way, xDS server will be able to use Envoy node metadata
 // to generate xDS resources that depend on environment-specific configuration.
 type DataplaneMetadata struct {
-	DataplaneToken  string
 	Resource        model.Resource
 	AdminPort       uint32
 	DNSPort         uint32
@@ -51,13 +50,6 @@ type DataplaneMetadata struct {
 	DynamicMetadata map[string]string
 	ProxyType       mesh_proto.ProxyType
 	Version         *mesh_proto.Version
-}
-
-func (m *DataplaneMetadata) GetDataplaneToken() string {
-	if m == nil {
-		return ""
-	}
-	return m.DataplaneToken
 }
 
 // GetDataplaneResource returns the underlying DataplaneResource, if present.
@@ -77,6 +69,18 @@ func (m *DataplaneMetadata) GetDataplaneResource() *core_mesh.DataplaneResource 
 func (m *DataplaneMetadata) GetZoneIngressResource() *core_mesh.ZoneIngressResource {
 	if m != nil {
 		if z, ok := m.Resource.(*core_mesh.ZoneIngressResource); ok {
+			return z
+		}
+	}
+
+	return nil
+}
+
+// GetZoneEgressResource returns the underlying ZoneEgressResource, if present.
+// If the resource is of a different type, it returns nil.
+func (m *DataplaneMetadata) GetZoneEgressResource() *core_mesh.ZoneEgressResource {
+	if m != nil {
+		if z, ok := m.Resource.(*core_mesh.ZoneEgressResource); ok {
 			return z
 		}
 	}
@@ -131,9 +135,6 @@ func DataplaneMetadataFromXdsMetadata(xdsMetadata *structpb.Struct) *DataplaneMe
 	if xdsMetadata == nil {
 		return &metadata
 	}
-	if field := xdsMetadata.Fields[fieldDataplaneToken]; field != nil {
-		metadata.DataplaneToken = field.GetStringValue()
-	}
 	if field := xdsMetadata.Fields[fieldDataplaneProxyType]; field != nil {
 		metadata.ProxyType = mesh_proto.ProxyType(field.GetStringValue())
 	}
@@ -147,7 +148,8 @@ func DataplaneMetadataFromXdsMetadata(xdsMetadata *structpb.Struct) *DataplaneMe
 		}
 		switch r := res.(type) {
 		case *core_mesh.DataplaneResource,
-			*core_mesh.ZoneIngressResource:
+			*core_mesh.ZoneIngressResource,
+			*core_mesh.ZoneEgressResource:
 			metadata.Resource = r
 		default:
 			metadataLog.Error(err, "invalid dataplane resource type",
@@ -155,13 +157,6 @@ func DataplaneMetadataFromXdsMetadata(xdsMetadata *structpb.Struct) *DataplaneMe
 				"field", fieldDataplaneDataplaneResource,
 				"value", value)
 		}
-	}
-	if value := xdsMetadata.Fields[fieldDynamicMetadata]; value != nil {
-		dynamicMetadata := map[string]string{}
-		for field, val := range value.GetStructValue().GetFields() {
-			dynamicMetadata[field] = val.GetStringValue()
-		}
-		metadata.DynamicMetadata = dynamicMetadata
 	}
 
 	if value := xdsMetadata.Fields[fieldVersion]; value.GetStructValue() != nil {
@@ -171,6 +166,20 @@ func DataplaneMetadataFromXdsMetadata(xdsMetadata *structpb.Struct) *DataplaneMe
 		}
 		metadata.Version = version
 	}
+
+	if value := xdsMetadata.Fields[fieldDynamicMetadata]; value != nil {
+		dynamicMetadata := map[string]string{}
+		for field, val := range value.GetStructValue().GetFields() {
+			if strings.HasPrefix(field, FieldPrefixDependenciesVersion) {
+				dependencyName := strings.TrimPrefix(field, FieldPrefixDependenciesVersion+".")
+				metadata.Version.Dependencies[dependencyName] = val.GetStringValue()
+			} else {
+				dynamicMetadata[field] = val.GetStringValue()
+			}
+		}
+		metadata.DynamicMetadata = dynamicMetadata
+	}
+
 	return &metadata
 }
 

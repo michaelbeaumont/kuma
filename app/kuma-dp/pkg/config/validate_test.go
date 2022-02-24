@@ -2,11 +2,9 @@ package config_test
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/app/kuma-dp/pkg/config"
@@ -17,7 +15,7 @@ var _ = Describe("ValidateTokenPath", func() {
 	var tokenFile *os.File
 
 	BeforeEach(func() {
-		tf, err := ioutil.TempFile("", "")
+		tf, err := os.CreateTemp("", "")
 		Expect(err).ToNot(HaveOccurred())
 		tokenFile = tf
 	})
@@ -66,7 +64,7 @@ var _ = Describe("ValidateTokenPath", func() {
 		DescribeTable("should fail with invalid token",
 			func(given testCase) {
 				// setup
-				invalidTokenFile, err := ioutil.TempFile("", "")
+				invalidTokenFile, err := os.CreateTemp("", "")
 				Expect(err).ToNot(HaveOccurred())
 
 				_, err = invalidTokenFile.Write([]byte(given.token))

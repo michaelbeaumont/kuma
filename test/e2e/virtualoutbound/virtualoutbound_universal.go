@@ -3,7 +3,7 @@ package virtualoutbound
 import (
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -23,11 +23,8 @@ func VirtualOutboundOnUniversal() {
 		cluster = clusters.GetCluster(Kuma3)
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, KumaUniversalDeployOpts...)).
+			Install(Kuma(core.Standalone)).
 			Setup(cluster)
-		Expect(err).ToNot(HaveOccurred())
-
-		err = cluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		_ = cluster.GetKumactlOptions().RunKumactl("delete", "virtual-outbound", "instances")
@@ -51,7 +48,7 @@ func VirtualOutboundOnUniversal() {
 		if ShouldSkipCleanup() {
 			return
 		}
-		err := cluster.DeleteKuma(KumaUniversalDeployOpts...)
+		err := cluster.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		err = cluster.DismissCluster()

@@ -2,8 +2,7 @@ package mesh
 
 import (
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	util_proto "github.com/kumahq/kuma/pkg/util/proto"
@@ -70,6 +69,16 @@ var _ = Describe("Mesh", func() {
                 conf:
                   port: 5670
                   path: /metrics
+            constraints:
+              dataplaneProxy:
+                requirements:
+                - tags:
+                    k8s.kuma.io/namespace: ns-1
+                    kuma.io/zone: east
+                restrictions:
+                - tags:
+                    k8s.kuma.io/namespace: ns-1
+                    kuma.io/zone: west
 `
 			mesh := NewMeshResource()
 
@@ -409,6 +418,50 @@ var _ = Describe("Mesh", func() {
                   message: 'unknown backend type. Available backends: "zipkin", "datadog"'
                 - field: metrics.backends[0].type
                   message: 'unknown backend type. Available backends: "prometheus"'`,
+			}),
+			Entry("constraints dataplaneProxy with invalid tags", testCase{
+				mesh: `
+                constraints:
+                  dataplaneProxy:
+                    requirements:
+                    - {}
+                    - tags:
+                        '': ''
+                    - tags:
+                        '!@#$': '!@#$'
+                    restrictions:
+                    - {}
+                    - tags:
+                        '': ''
+                    - tags:
+                        '!@#$': '!@#$'
+`,
+				expected: `
+                violations:
+                - field: constraints.dataplaneProxy.requirements[0].tags
+                  message: must have at least one tag
+                - field: constraints.dataplaneProxy.requirements[1].tags
+                  message: tag name must be non-empty
+                - field: constraints.dataplaneProxy.requirements[1].tags[""]
+                  message: tag value must be non-empty
+                - field: constraints.dataplaneProxy.requirements[2].tags["!@#$"]
+                  message: tag name must consist of alphanumeric characters, dots, dashes, slashes
+                    and underscores
+                - field: constraints.dataplaneProxy.requirements[2].tags["!@#$"]
+                  message: tag value must consist of alphanumeric characters, dots, dashes, slashes
+                    and underscores or be "*"
+                - field: constraints.dataplaneProxy.restrictions[0].tags
+                  message: must have at least one tag
+                - field: constraints.dataplaneProxy.restrictions[1].tags
+                  message: tag name must be non-empty
+                - field: constraints.dataplaneProxy.restrictions[1].tags[""]
+                  message: tag value must be non-empty
+                - field: constraints.dataplaneProxy.restrictions[2].tags["!@#$"]
+                  message: tag name must consist of alphanumeric characters, dots, dashes, slashes
+                    and underscores
+                - field: constraints.dataplaneProxy.restrictions[2].tags["!@#$"]
+                  message: tag value must consist of alphanumeric characters, dots, dashes, slashes
+                    and underscores or be "*"`,
 			}),
 			Entry("multiple errors", testCase{
 				mesh: `

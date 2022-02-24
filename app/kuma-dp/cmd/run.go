@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -16,11 +15,13 @@ import (
 	"github.com/kumahq/kuma/app/kuma-dp/pkg/dataplane/metrics"
 	kuma_cmd "github.com/kumahq/kuma/pkg/cmd"
 	"github.com/kumahq/kuma/pkg/config"
+	kumadp "github.com/kumahq/kuma/pkg/config/app/kuma-dp"
 	config_types "github.com/kumahq/kuma/pkg/config/types"
 	"github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	"github.com/kumahq/kuma/pkg/core/resources/model"
 	"github.com/kumahq/kuma/pkg/core/resources/model/rest"
 	"github.com/kumahq/kuma/pkg/core/runtime/component"
+	core_xds "github.com/kumahq/kuma/pkg/core/xds"
 	util_net "github.com/kumahq/kuma/pkg/util/net"
 	kuma_version "github.com/kumahq/kuma/pkg/version"
 )
@@ -34,7 +35,6 @@ var runLog = dataplaneLog.WithName("run")
 func newRunCmd(opts kuma_cmd.RunCmdOpts, rootCtx *RootContext) *cobra.Command {
 	cfg := rootCtx.Config
 	var tmpDir string
-	var adminPort uint32
 	var proxyResource model.Resource
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -52,6 +52,8 @@ func newRunCmd(opts kuma_cmd.RunCmdOpts, rootCtx *RootContext) *cobra.Command {
 				return err
 			}
 
+			kumadp.PrintDeprecations(cfg, cmd.OutOrStdout())
+
 			if conf, err := config.ToJson(cfg); err == nil {
 				runLog.Info("effective configuration", "config", string(conf))
 			} else {
@@ -63,6 +65,7 @@ func newRunCmd(opts kuma_cmd.RunCmdOpts, rootCtx *RootContext) *cobra.Command {
 			proxyTypeMap := map[string]model.ResourceType{
 				string(mesh_proto.DataplaneProxyType): mesh.DataplaneType,
 				string(mesh_proto.IngressProxyType):   mesh.ZoneIngressType,
+				string(mesh_proto.EgressProxyType):    mesh.ZoneEgressType,
 			}
 
 			if _, ok := proxyTypeMap[cfg.Dataplane.ProxyType]; !ok {
@@ -92,7 +95,7 @@ func newRunCmd(opts kuma_cmd.RunCmdOpts, rootCtx *RootContext) *cobra.Command {
 
 			if !cfg.Dataplane.AdminPort.Empty() {
 				// unless a user has explicitly opted out of Envoy Admin API, pick a free port from the range
-				adminPort, err = util_net.PickTCPPort("127.0.0.1", cfg.Dataplane.AdminPort.Lowest(), cfg.Dataplane.AdminPort.Highest())
+				adminPort, err := util_net.PickTCPPort("127.0.0.1", cfg.Dataplane.AdminPort.Lowest(), cfg.Dataplane.AdminPort.Highest())
 				if err != nil {
 					return errors.Wrapf(err, "unable to find a free port in the range %q for Envoy Admin API to listen on", cfg.Dataplane.AdminPort)
 				}
@@ -101,7 +104,7 @@ func newRunCmd(opts kuma_cmd.RunCmdOpts, rootCtx *RootContext) *cobra.Command {
 			}
 
 			if cfg.DataplaneRuntime.ConfigDir == "" || cfg.DNS.ConfigDir == "" {
-				tmpDir, err = ioutil.TempDir("", "kuma-dp-")
+				tmpDir, err = os.MkdirTemp("", "kuma-dp-")
 				if err != nil {
 					runLog.Error(err, "unable to create a temporary directory to store generated configuration")
 					return err
@@ -134,7 +137,7 @@ func newRunCmd(opts kuma_cmd.RunCmdOpts, rootCtx *RootContext) *cobra.Command {
 			}
 
 			if cfg.ControlPlane.CaCert == "" && cfg.ControlPlane.CaCertFile != "" {
-				cert, err := ioutil.ReadFile(cfg.ControlPlane.CaCertFile)
+				cert, err := os.ReadFile(cfg.ControlPlane.CaCertFile)
 				if err != nil {
 					return errors.Wrapf(err, "could not read certificate file %s", cfg.ControlPlane.CaCertFile)
 				}
@@ -165,20 +168,17 @@ func newRunCmd(opts kuma_cmd.RunCmdOpts, rootCtx *RootContext) *cobra.Command {
 			}
 
 			opts := envoy.Opts{
-				Config:          *cfg,
-				Generator:       rootCtx.BootstrapGenerator,
-				Dataplane:       rest.NewFromModel(proxyResource),
-				DynamicMetadata: rootCtx.BootstrapDynamicMetadata,
-				Stdout:          cmd.OutOrStdout(),
-				Stderr:          cmd.OutOrStderr(),
-				Quit:            shouldQuit,
-				LogLevel:        rootCtx.LogLevel,
+				Config:    *cfg,
+				Dataplane: rest.NewFromModel(proxyResource),
+				Stdout:    cmd.OutOrStdout(),
+				Stderr:    cmd.OutOrStderr(),
+				Quit:      shouldQuit,
+				LogLevel:  rootCtx.LogLevel,
 			}
 
-			if cfg.DNS.Enabled {
-				opts.DNSPort = cfg.DNS.EnvoyDNSPort
-				opts.EmptyDNSPort = cfg.DNS.CoreDNSEmptyPort
-
+			if cfg.DNS.Enabled &&
+				cfg.Dataplane.ProxyType != string(mesh_proto.IngressProxyType) &&
+				cfg.Dataplane.ProxyType != string(mesh_proto.EgressProxyType) {
 				dnsOpts := &dnsserver.Opts{
 					Config: *cfg,
 					Stdout: cmd.OutOrStdout(),
@@ -191,8 +191,36 @@ func newRunCmd(opts kuma_cmd.RunCmdOpts, rootCtx *RootContext) *cobra.Command {
 					return err
 				}
 
+				version, err := dnsServer.GetVersion()
+				if err != nil {
+					return err
+				}
+
+				rootCtx.BootstrapDynamicMetadata[core_xds.FieldPrefixDependenciesVersion+".coredns"] = version
+
 				components = append(components, dnsServer)
 			}
+
+			envoyVersion, err := envoy.GetEnvoyVersion(opts.Config.DataplaneRuntime.BinaryPath)
+			if err != nil {
+				return errors.Wrap(err, "failed to get Envoy version")
+			}
+			runLog.Info("fetched Envoy version", "version", envoyVersion)
+
+			runLog.Info("generating bootstrap configuration")
+			bootstrap, bootstrapBytes, err := rootCtx.BootstrapGenerator(opts.Config.ControlPlane.URL, opts.Config, envoy.BootstrapParams{
+				Dataplane:       opts.Dataplane,
+				DNSPort:         cfg.DNS.EnvoyDNSPort,
+				EmptyDNSPort:    cfg.DNS.CoreDNSEmptyPort,
+				EnvoyVersion:    *envoyVersion,
+				DynamicMetadata: rootCtx.BootstrapDynamicMetadata,
+			})
+			if err != nil {
+				return errors.Errorf("Failed to generate Envoy bootstrap config. %v", err)
+			}
+			runLog.Info("received bootstrap configuration", "adminPort", bootstrap.GetAdmin().GetAddress().GetSocketAddress().GetPortValue())
+
+			opts.BootstrapConfig = bootstrapBytes
 
 			dataplane, err := envoy.New(opts)
 			if err != nil {
@@ -201,7 +229,7 @@ func newRunCmd(opts kuma_cmd.RunCmdOpts, rootCtx *RootContext) *cobra.Command {
 
 			components = append(components, dataplane)
 
-			metricsServer := metrics.New(cfg.Dataplane, adminPort)
+			metricsServer := metrics.New(cfg.Dataplane, bootstrap.GetAdmin().GetAddress().GetSocketAddress().GetPortValue())
 			components = append(components, metricsServer)
 
 			if err := rootCtx.ComponentManager.Add(components...); err != nil {
@@ -220,6 +248,7 @@ func newRunCmd(opts kuma_cmd.RunCmdOpts, rootCtx *RootContext) *cobra.Command {
 	var bootstrapVersion string
 	cmd.PersistentFlags().StringVar(&cfg.Dataplane.Name, "name", cfg.Dataplane.Name, "Name of the Dataplane")
 	cmd.PersistentFlags().Var(&cfg.Dataplane.AdminPort, "admin-port", `Port (or range of ports to choose from) for Envoy Admin API to listen on. Empty value indicates that Envoy Admin API should not be exposed over TCP. Format: "9901 | 9901-9999 | 9901- | -9901"`)
+	_ = cmd.PersistentFlags().MarkDeprecated("admin-port", kumadp.DeprecateAdminPortMsg)
 	cmd.PersistentFlags().StringVar(&cfg.Dataplane.Mesh, "mesh", cfg.Dataplane.Mesh, "Mesh that Dataplane belongs to")
 	cmd.PersistentFlags().StringVar(&cfg.Dataplane.ProxyType, "proxy-type", "dataplane", `type of the Dataplane ("dataplane", "ingress")`)
 	cmd.PersistentFlags().StringVar(&cfg.ControlPlane.URL, "cp-address", cfg.ControlPlane.URL, "URL of the Control Plane Dataplane Server. Example: https://localhost:5678")
@@ -250,5 +279,5 @@ func writeFile(filename string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(filename), perm); err != nil {
 		return err
 	}
-	return ioutil.WriteFile(filename, data, perm)
+	return os.WriteFile(filename, data, perm)
 }

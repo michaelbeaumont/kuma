@@ -9,22 +9,29 @@ import (
 	core_manager "github.com/kumahq/kuma/pkg/core/resources/manager"
 	"github.com/kumahq/kuma/pkg/core/resources/model"
 	"github.com/kumahq/kuma/pkg/core/resources/registry"
+	"github.com/kumahq/kuma/pkg/kds"
 	"github.com/kumahq/kuma/pkg/kds/cache"
 	"github.com/kumahq/kuma/pkg/kds/util"
 	util_xds_v3 "github.com/kumahq/kuma/pkg/util/xds/v3"
 )
 
-type ResourceFilter func(clusterID string, r model.Resource) bool
+type ResourceFilter func(clusterID string, features kds.Features, r model.Resource) bool
+type ResourceMapper func(r model.Resource) (model.Resource, error)
 
-func Any(clusterID string, r model.Resource) bool {
+func NoopResourceMapper(r model.Resource) (model.Resource, error) {
+	return r, nil
+}
+
+func Any(string, kds.Features, model.Resource) bool {
 	return true
 }
 
-func NewSnapshotGenerator(resourceManager core_manager.ReadOnlyResourceManager, types []model.ResourceType, filter ResourceFilter) SnapshotGenerator {
+func NewSnapshotGenerator(resourceManager core_manager.ReadOnlyResourceManager, types []model.ResourceType, filter ResourceFilter, mapper ResourceMapper) SnapshotGenerator {
 	return &snapshotGenerator{
 		resourceManager: resourceManager,
 		resourceTypes:   types,
 		resourceFilter:  filter,
+		resourceMapper:  mapper,
 	}
 }
 
@@ -32,6 +39,7 @@ type snapshotGenerator struct {
 	resourceManager core_manager.ReadOnlyResourceManager
 	resourceTypes   []model.ResourceType
 	resourceFilter  ResourceFilter
+	resourceMapper  ResourceMapper
 }
 
 func (s *snapshotGenerator) GenerateSnapshot(ctx context.Context, node *envoy_core.Node) (util_xds_v3.Snapshot, error) {
@@ -55,15 +63,43 @@ func (s *snapshotGenerator) getResources(context context.Context, typ model.Reso
 	if err := s.resourceManager.List(context, rlist); err != nil {
 		return nil, err
 	}
-	return util.ToEnvoyResources(s.filter(rlist, node))
+
+	resources, err := s.mapper(s.filter(rlist, node))
+	if err != nil {
+		return nil, err
+	}
+
+	return util.ToEnvoyResources(resources)
 }
 
 func (s *snapshotGenerator) filter(rs model.ResourceList, node *envoy_core.Node) model.ResourceList {
+	features := kds.Features{}
+	for _, value := range node.GetMetadata().GetFields()[kds.MetadataFeatures].GetListValue().GetValues() {
+		features[value.GetStringValue()] = true
+	}
+
 	rv, _ := registry.Global().NewList(rs.GetItemType())
 	for _, r := range rs.GetItems() {
-		if s.resourceFilter(node.GetId(), r) {
+		if s.resourceFilter(node.GetId(), features, r) {
 			_ = rv.AddItem(r)
 		}
 	}
 	return rv
+}
+
+func (s *snapshotGenerator) mapper(rs model.ResourceList) (model.ResourceList, error) {
+	rv, _ := registry.Global().NewList(rs.GetItemType())
+
+	for _, r := range rs.GetItems() {
+		resource, err := s.resourceMapper(r)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := rv.AddItem(resource); err != nil {
+			return nil, err
+		}
+	}
+
+	return rv, nil
 }

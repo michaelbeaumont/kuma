@@ -1,11 +1,10 @@
 package dnsserver
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	kuma_dp "github.com/kumahq/kuma/pkg/config/app/kuma-dp"
@@ -18,7 +17,7 @@ var _ = Describe("Config File", func() {
 
 		BeforeEach(func() {
 			var err error
-			configDir, err = ioutil.TempDir("", "")
+			configDir, err = os.MkdirTemp("", "")
 			Expect(err).ToNot(HaveOccurred())
 		})
 		AfterEach(func() {
@@ -48,7 +47,7 @@ var _ = Describe("Config File", func() {
 			Expect(filename).To(Equal(filepath.Join(configDir, "Corefile")))
 
 			// when
-			actual, err := ioutil.ReadFile(filename)
+			actual, err := os.ReadFile(filename)
 			// then
 			Expect(err).ToNot(HaveOccurred())
 			// and

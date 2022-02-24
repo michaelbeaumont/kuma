@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/app/kumactl/cmd"
@@ -57,7 +56,15 @@ var _ = Describe("kumactl install control-plane", func() {
 
 			// given
 			rootCmd := cmd.NewRootCmd(rootCtx)
-			rootCmd.SetArgs(append([]string{"install", "control-plane", "--tls-general-secret", "general-tls-secret", "--tls-general-ca-bundle", "XYZ"}, given.extraArgs...))
+			rootCmd.SetArgs(append(
+				[]string{
+					"install",
+					"control-plane",
+					"--tls-general-secret", "general-tls-secret",
+					"--tls-general-ca-bundle", "XYZ",
+				},
+				given.extraArgs...,
+			))
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(stderr)
 
@@ -101,11 +108,13 @@ var _ = Describe("kumactl install control-plane", func() {
 				"--tls-api-server-client-certs-secret", "api-server-client-secret",
 				"--tls-kds-global-server-secret", "kds-global-secret",
 				"--tls-kds-zone-client-secret", "kds-ca-secret",
+				"--tls-general-ca-secret", "general-tls-secret-ca",
 				"--mode", "zone",
 				"--kds-global-address", "grpcs://192.168.0.1:5685",
 				"--zone", "zone-1",
 				"--use-node-port",
 				"--without-kubernetes-connection",
+				"--experimental-meshgateway",
 			},
 			goldenFile: "install-control-plane.overrides.golden.yaml",
 		}),
@@ -140,6 +149,14 @@ var _ = Describe("kumactl install control-plane", func() {
 				"--without-kubernetes-connection",
 			},
 			goldenFile: "install-control-plane.with-ingress.golden.yaml",
+		}),
+		Entry("should generate Kubernetes resources with Egress enabled", testCase{
+			extraArgs: []string{
+				"--egress-enabled",
+				"--egress-drain-time", "60s",
+				"--without-kubernetes-connection",
+			},
+			goldenFile: "install-control-plane.with-egress.golden.yaml",
 		}),
 	)
 

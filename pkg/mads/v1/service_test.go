@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strings"
 	"time"
@@ -16,7 +15,7 @@ import (
 	envoy_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/go-logr/logr"
 	"github.com/golang/protobuf/jsonpb"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -58,7 +57,7 @@ var _ = Describe("MADS http service", func() {
 		cfg.AssignmentRefreshInterval = refreshInterval
 		cfg.DefaultFetchTimeout = defaultFetchTimeout
 
-		svc := service.NewService(cfg, resManager, logr.DiscardLogger{})
+		svc := service.NewService(cfg, resManager, logr.Discard())
 
 		ws := new(restful.WebService)
 		svc.RegisterRoutes(ws)
@@ -99,7 +98,7 @@ var _ = Describe("MADS http service", func() {
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 		// when
-		respBody, err := ioutil.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
 
 		// then
 		Expect(err).ToNot(HaveOccurred())
@@ -129,7 +128,7 @@ var _ = Describe("MADS http service", func() {
 		Expect(resp.StatusCode).To(Equal(http.StatusNotModified))
 
 		// when
-		respBody, err = ioutil.ReadAll(resp.Body)
+		respBody, err = io.ReadAll(resp.Body)
 
 		// then
 		Expect(err).ToNot(HaveOccurred())
@@ -248,7 +247,7 @@ var _ = Describe("MADS http service", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			// when
-			respBody, err := ioutil.ReadAll(resp.Body)
+			respBody, err := io.ReadAll(resp.Body)
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
@@ -291,7 +290,7 @@ var _ = Describe("MADS http service", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusNotModified))
 
 			// when
-			respBody, err = ioutil.ReadAll(resp.Body)
+			respBody, err = io.ReadAll(resp.Body)
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
@@ -323,7 +322,7 @@ var _ = Describe("MADS http service", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			// when
-			respBody, err := ioutil.ReadAll(resp.Body)
+			respBody, err := io.ReadAll(resp.Body)
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
@@ -360,7 +359,7 @@ var _ = Describe("MADS http service", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			// when
-			respBody, err = ioutil.ReadAll(resp.Body)
+			respBody, err = io.ReadAll(resp.Body)
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
@@ -400,7 +399,7 @@ var _ = Describe("MADS http service", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			// when
-			respBody, err := ioutil.ReadAll(resp.Body)
+			respBody, err := io.ReadAll(resp.Body)
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
@@ -446,7 +445,7 @@ var _ = Describe("MADS http service", func() {
 			Expect(resp2.StatusCode).To(Equal(http.StatusOK))
 
 			// when
-			respBody, err = ioutil.ReadAll(resp2.Body)
+			respBody, err = io.ReadAll(resp2.Body)
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
@@ -460,7 +459,7 @@ var _ = Describe("MADS http service", func() {
 			Expect(discoveryRes.Resources).To(HaveLen(2))
 		})
 
-		It("should allow specifying the fetch timeout", func() {
+		It("should return straightaway on first request with a fetch timeout", func() {
 			// given
 			discoveryReq := envoy_v3.DiscoveryRequest{
 				VersionInfo:   "",
@@ -479,26 +478,15 @@ var _ = Describe("MADS http service", func() {
 			Expect(err).ToNot(HaveOccurred())
 			req.Header.Add("content-type", "application/json")
 
-			respChan := make(chan *http.Response, 1)
-
-			go func() {
-				resp, err := http.DefaultClient.Do(req)
-				Expect(err).ToNot(HaveOccurred())
-
-				respChan <- resp
-			}()
-
-			// given an updated mesh while the request is in progress
-			time.Sleep(5 * time.Millisecond)
-
-			err = createDataPlane(dp2)
+			start := time.Now()
+			resp, err := http.DefaultClient.Do(req)
+			// Ensure we're returning in less than 1 sec as this is the first request
+			Expect(time.Now()).To(BeTemporally("<", start.Add(time.Second)))
 			Expect(err).ToNot(HaveOccurred())
-
-			resp := <-respChan
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp).To(HaveHTTPStatus(http.StatusOK))
 
 			// when
 			respBody, err := io.ReadAll(resp.Body)
@@ -543,7 +531,7 @@ var _ = Describe("MADS http service", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			// when
-			respBody, err := ioutil.ReadAll(resp.Body)
+			respBody, err := io.ReadAll(resp.Body)
 
 			// then
 			Expect(err).ToNot(HaveOccurred())

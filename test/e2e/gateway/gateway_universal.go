@@ -2,51 +2,22 @@ package gateway
 
 import (
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net"
-	"net/url"
-	"path"
 	"strings"
 
-	"github.com/gruntwork-io/terratest/modules/shell"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	config_core "github.com/kumahq/kuma/pkg/config/core"
-	"github.com/kumahq/kuma/test/e2e/trafficroute/testutil"
 	. "github.com/kumahq/kuma/test/framework"
+	"github.com/kumahq/kuma/test/framework/client"
 )
 
 func GatewayOnUniversal() {
 	var cluster *UniversalCluster
 
-	EchoServerUniversal := func(name string) InstallFunc {
-		return func(cluster Cluster) error {
-			const service = "echo-service"
-			token, err := cluster.GetKuma().GenerateDpToken("default", service)
-			if err != nil {
-				return err
-			}
-
-			return TestServerUniversal(
-				name,
-				"default",
-				token,
-				WithArgs([]string{"echo", "--instance", "universal"}),
-				WithServiceName(service),
-			)(cluster)
-		}
-	}
-
-	// GatewayClientUniversal runs an empty container that will
-	// function as a client for a gateway.
-	GatewayClientUniversal := func(name string) InstallFunc {
-		return func(cluster Cluster) error {
-			return cluster.DeployApp(WithName(name), WithoutDataplane(), WithVerbose())
-		}
-	}
+	const GatewayPort = "8080"
 
 	ExternalServerUniversal := func(name string) InstallFunc {
 		return func(cluster Cluster) error {
@@ -58,70 +29,24 @@ func GatewayOnUniversal() {
 		}
 	}
 
-	GatewayProxyUniversal := func(name string) InstallFunc {
-		return func(cluster Cluster) error {
-			token, err := cluster.GetKuma().GenerateDpToken("default", "edge-gateway")
-			if err != nil {
-				return err
-			}
-
-			dataplaneYaml := `
-type: Dataplane
-mesh: default
-name: {{ name }}
-networking:
-  address:  {{ address }}
-  gateway:
-    type: BUILTIN
-    tags:
-      kuma.io/service: edge-gateway
-`
-			return cluster.DeployApp(
-				WithKumactlFlow(),
-				WithName(name),
-				WithToken(token),
-				WithVerbose(),
-				WithYaml(dataplaneYaml),
-			)
-		}
-	}
-
-	SetupCluster := func(setup *ClusterSetup) {
-		cluster = NewUniversalCluster(NewTestingT(), Kuma1, Silent)
-		Expect(cluster).ToNot(BeNil())
-
-		err := setup.Setup(cluster)
-
-		// The makefile rule that builds the kuma-universal:latest image
-		// that is used for e2e tests by default rebuilds Kuma with Gateway
-		// disabled. This means that unless BUILD_WITH_EXPERIMENTAL_GATEWAY=Y is
-		// set persistently in the environment, Gateway will not be supported.
-		// We use the `WithKumactlFlow` option to detect the unsupported gateway
-		// type early (when kumactl creates the dataplane resource), and skip
-		// the remaining tests.
-		var shellErr *shell.ErrWithCmdOutput
-		if errors.As(err, &shellErr) {
-			if strings.Contains(shellErr.Output.Combined(), "unsupported gateway type") {
-				Skip("kuma-cp builtin Gateway support is not enabled")
-			}
-		}
-
-		// Otherwise, we expect the cluster build to succeed.
-		Expect(err).To(Succeed())
-	}
-
 	// DeployCluster creates a universal Kuma cluster using the
 	// provided options, installing an echo service as well as a
 	// gateway and a client container to send HTTP requests.
 	DeployCluster := func(opt ...KumaDeploymentOption) {
-		opt = append(opt, WithVerbose())
+		opt = append(opt, WithVerbose(), WithEnv("KUMA_EXPERIMENTAL_MESHGATEWAY", "true"))
+		cluster = NewUniversalCluster(NewTestingT(), Kuma1, Silent)
 
-		SetupCluster(NewClusterSetup().
+		err := NewClusterSetup().
 			Install(Kuma(config_core.Standalone, opt...)).
-			Install(GatewayClientUniversal("gateway-client")).
-			Install(EchoServerUniversal("echo-server")).
-			Install(GatewayProxyUniversal("gateway-proxy")),
-		)
+			Install(GatewayClientAppUniversal("gateway-client")).
+			Install(EchoServerApp("echo-server", "echo-service", "universal")).
+			Install(GatewayProxyUniversal("gateway-proxy")).
+			Setup(cluster)
+		Expect(err).ToNot(HaveOccurred())
+	}
+
+	GatewayAddress := func(appName string) string {
+		return cluster.GetApp(appName).GetIP()
 	}
 
 	// Before each test, verify the cluster is up and stable.
@@ -140,7 +65,7 @@ networking:
 	JustBeforeEach(func() {
 		Expect(
 			cluster.GetKumactlOptions().KumactlApplyFromString(`
-type: Gateway
+type: MeshGateway
 mesh: default
 name: edge-gateway
 selectors:
@@ -158,7 +83,7 @@ conf:
 
 		Expect(
 			cluster.GetKumactlOptions().KumactlApplyFromString(`
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: edge-gateway
 selectors:
@@ -178,7 +103,7 @@ conf:
 		).To(Succeed())
 
 		Expect(
-			cluster.GetKumactlOptions().KumactlList("gateways", "default"),
+			cluster.GetKumactlOptions().KumactlList("meshgateways", "default"),
 		).To(ContainElement("edge-gateway"))
 	})
 
@@ -186,91 +111,47 @@ conf:
 		Expect(cluster.DismissCluster()).ToNot(HaveOccurred())
 	})
 
-	// ProxySimpleRequests tests that basic HTTP requests are proxied to a service.
-	ProxySimpleRequests := func(prefix string, instance string) func() {
-		return func() {
-			Eventually(func(g Gomega) {
-				target := fmt.Sprintf("http://%s/%s",
-					net.JoinHostPort(cluster.GetApp("gateway-proxy").GetIP(), "8080"),
-					path.Join(prefix, "test", url.PathEscape(GinkgoT().Name())),
-				)
-
-				response, err := testutil.CollectResponse(
-					cluster, "gateway-client", target,
-					testutil.WithHeader("Host", "example.kuma.io"),
-				)
-
-				g.Expect(err).To(Succeed())
-				g.Expect(response.Instance).To(Equal(instance))
-				g.Expect(response.Received.Headers["Host"]).To(ContainElement("example.kuma.io"))
-			}, "30s", "1s").Should(Succeed())
-		}
-	}
-
 	Context("when mTLS is disabled", func() {
 		BeforeEach(func() {
-			DeployCluster(KumaUniversalDeployOpts...)
+			DeployCluster()
 		})
 
-		It("should proxy simple HTTP requests", ProxySimpleRequests("/", "universal"))
+		It("should proxy simple HTTP requests", func() {
+			ProxySimpleRequests(cluster, "universal",
+				net.JoinHostPort(GatewayAddress("gateway-proxy"), GatewayPort))
+		})
 	})
 
 	Context("when mTLS is enabled", func() {
 		BeforeEach(func() {
-			mtls := WithMeshUpdate("default", func(mesh *mesh_proto.Mesh) *mesh_proto.Mesh {
-				mesh.Mtls = &mesh_proto.Mesh_Mtls{
-					EnabledBackend: "builtin",
-					Backends: []*mesh_proto.CertificateAuthorityBackend{
-						{Name: "builtin", Type: "builtin"},
-					},
-				}
-				return mesh
-			})
-
-			DeployCluster(append(KumaUniversalDeployOpts, mtls)...)
+			DeployCluster(OptEnableMeshMTLS)
 		})
 
-		It("should proxy simple HTTP requests", ProxySimpleRequests("/", "universal"))
+		It("should proxy simple HTTP requests", func() {
+			ProxySimpleRequests(cluster, "universal",
+				net.JoinHostPort(GatewayAddress("gateway-proxy"), GatewayPort))
+		})
 
 		// In mTLS mode, only the presence of TrafficPermission rules allow services to receive
 		// traffic, so removing the permission should cause requests to fail. We use this to
 		// prove that mTLS is enabled
 		It("should fail without TrafficPermission", func() {
-			Expect(
-				cluster.GetKumactlOptions().KumactlDelete(
-					"traffic-permission", "allow-all-default", "default"),
-			).To(Succeed())
-
-			Eventually(func(g Gomega) {
-				target := fmt.Sprintf("http://%s/%s",
-					net.JoinHostPort(cluster.GetApp("gateway-proxy").GetIP(), "8080"),
-					path.Join("test", url.PathEscape(GinkgoT().Name())),
-				)
-
-				status, err := testutil.CollectFailure(
-					cluster, "gateway-client", target,
-					testutil.WithHeader("Host", "example.kuma.io"),
-				)
-
-				g.Expect(err).To(Succeed())
-				g.Expect(status.ResponseCode).To(Equal(503))
-			}, "30s", "1s").Should(Succeed())
+			ProxyRequestsWithMissingPermission(cluster,
+				net.JoinHostPort(GatewayAddress("gateway-proxy"), GatewayPort))
 		})
 	})
 
 	Context("when targeting an external service", func() {
 		BeforeEach(func() {
-			if IsIPv6() {
-				Skip("Skipping these tests because of: https://github.com/kumahq/kuma/issues/3096")
-			}
-			opt := append(KumaUniversalDeployOpts, WithVerbose())
-			SetupCluster(NewClusterSetup().
-				Install(Kuma(config_core.Standalone, opt...)).
+			cluster = NewUniversalCluster(NewTestingT(), Kuma1, Silent)
+			err := NewClusterSetup().
+				Install(Kuma(config_core.Standalone, WithVerbose(), WithEnv("KUMA_EXPERIMENTAL_MESHGATEWAY", "true"))).
 				Install(ExternalServerUniversal("external-echo")).
-				Install(GatewayClientUniversal("gateway-client")).
+				Install(GatewayClientAppUniversal("gateway-client")).
 				Install(GatewayProxyUniversal("gateway-proxy")).
-				Install(EchoServerUniversal("echo-server")),
-			)
+				Install(EchoServerApp("echo-server", "echo-service", "universal")).
+				Setup(cluster)
+			Expect(err).ToNot(HaveOccurred())
 		})
 
 		JustBeforeEach(func() {
@@ -278,7 +159,7 @@ conf:
 			// Add new route to the external echo server.
 			Expect(
 				cluster.GetKumactlOptions().KumactlApplyFromString(`
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: external-routes
 selectors:
@@ -310,25 +191,28 @@ networking:
 			).To(Succeed())
 		})
 
-		It("should proxy simple HTTP requests",
-			ProxySimpleRequests("/external", "external-echo"))
+		It("should proxy simple HTTP requests", func() {
+			ProxySimpleRequests(cluster, "external-echo",
+				net.JoinHostPort(GatewayAddress("gateway-proxy"), GatewayPort),
+				client.WithPathPrefix("/external"))
+		})
 	})
 
 	Context("when targeting a HTTPS gateway", func() {
 		BeforeEach(func() {
-			DeployCluster(KumaUniversalDeployOpts...)
+			DeployCluster()
 		})
 
 		JustBeforeEach(func() {
 			// Delete the default gateway that the test fixtures create.
 			Expect(
-				cluster.GetKumactlOptions().KumactlDelete("gateway", "edge-gateway", "default"),
+				cluster.GetKumactlOptions().KumactlDelete("meshgateway", "edge-gateway", "default"),
 			).To(Succeed())
 
 			// And replace it with a HTTPS gateway.
 			Expect(
 				cluster.GetKumactlOptions().KumactlApplyFromString(`
-type: Gateway
+type: MeshGateway
 mesh: default
 name: edge-https-gateway
 selectors:
@@ -364,28 +248,45 @@ data: %s
 			).To(Succeed())
 
 			Expect(
-				cluster.GetKumactlOptions().KumactlList("gateways", "default"),
+				cluster.GetKumactlOptions().KumactlList("meshgateways", "default"),
 			).To(ContainElement("edge-https-gateway"))
 		})
 
 		It("should proxy simple HTTPS requests", func() {
-			Eventually(func(g Gomega) {
-				target := fmt.Sprintf("https://%s/%s",
-					net.JoinHostPort("example.kuma.io", "8080"),
-					path.Join("https", "test", url.PathEscape(GinkgoT().Name())),
-				)
+			ProxySecureRequests(cluster, "universal",
+				net.JoinHostPort("example.kuma.io", GatewayPort),
+				client.Resolve("example.kuma.io", 8080, GatewayAddress("gateway-proxy")))
+		})
+	})
 
-				response, err := testutil.CollectResponse(
-					cluster, "gateway-client", target,
-					testutil.Insecure(),
-					testutil.Resolve("example.kuma.io", 8080, cluster.GetApp("gateway-proxy").GetIP()),
-					testutil.WithHeader("Host", "example.kuma.io"),
-				)
+	Context("when a rate limit is configured", func() {
+		BeforeEach(func() {
+			DeployCluster()
+		})
 
-				g.Expect(err).To(Succeed())
-				g.Expect(response.Instance).To(Equal("universal"))
-				g.Expect(response.Received.Headers["Host"]).To(ContainElement("example.kuma.io"))
-			}, "30s", "1s").Should(Succeed())
+		JustBeforeEach(func() {
+			Expect(
+				cluster.GetKumactlOptions().KumactlApplyFromString(`
+type: RateLimit
+mesh: default
+name: echo-rate-limit
+sources:
+- match:
+    kuma.io/service: edge-gateway
+destinations:
+- match:
+    kuma.io/service: echo-service
+conf:
+  http:
+    requests: 5
+    interval: 10s
+`),
+			).To(Succeed())
+		})
+
+		It("should be rate limited", func() {
+			ProxyRequestsWithRateLimit(cluster,
+				net.JoinHostPort(GatewayAddress("gateway-proxy"), GatewayPort))
 		})
 	})
 }

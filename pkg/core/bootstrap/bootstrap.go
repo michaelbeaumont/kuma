@@ -20,6 +20,7 @@ import (
 	mesh_managers "github.com/kumahq/kuma/pkg/core/managers/apis/mesh"
 	ratelimit_managers "github.com/kumahq/kuma/pkg/core/managers/apis/ratelimit"
 	"github.com/kumahq/kuma/pkg/core/managers/apis/zone"
+	"github.com/kumahq/kuma/pkg/core/managers/apis/zoneegressinsight"
 	"github.com/kumahq/kuma/pkg/core/managers/apis/zoneingressinsight"
 	"github.com/kumahq/kuma/pkg/core/managers/apis/zoneinsight"
 	core_plugins "github.com/kumahq/kuma/pkg/core/plugins"
@@ -38,11 +39,13 @@ import (
 	"github.com/kumahq/kuma/pkg/dns/resolver"
 	"github.com/kumahq/kuma/pkg/dp-server/server"
 	"github.com/kumahq/kuma/pkg/envoy/admin"
+	"github.com/kumahq/kuma/pkg/envoy/admin/access"
 	"github.com/kumahq/kuma/pkg/events"
 	kds_context "github.com/kumahq/kuma/pkg/kds/context"
 	"github.com/kumahq/kuma/pkg/metrics"
 	metrics_store "github.com/kumahq/kuma/pkg/metrics/store"
 	tokens_access "github.com/kumahq/kuma/pkg/tokens/builtin/access"
+	zone_access "github.com/kumahq/kuma/pkg/tokens/builtin/zone/access"
 	xds_hooks "github.com/kumahq/kuma/pkg/xds/hooks"
 	"github.com/kumahq/kuma/pkg/xds/secrets"
 )
@@ -85,7 +88,11 @@ func buildRuntime(appCtx context.Context, cfg kuma_cp.Config) (core_runtime.Runt
 	if err := initializeDNSResolver(cfg, builder); err != nil {
 		return nil, err
 	}
-	builder.WithMeshValidator(mesh_managers.NewMeshValidator(builder.CaManagers(), builder.ResourceStore()))
+	builder.WithResourceValidators(core_runtime.ResourceValidators{
+		Dataplane: dataplane.NewMembershipValidator(),
+		Mesh:      mesh_managers.NewMeshValidator(builder.CaManagers(), builder.ResourceStore()),
+	})
+
 	if err := initializeResourceManager(cfg, builder); err != nil {
 		return nil, err
 	}
@@ -100,7 +107,17 @@ func buildRuntime(appCtx context.Context, cfg kuma_cp.Config) (core_runtime.Runt
 	builder.WithLeaderInfo(leaderInfoComponent)
 
 	builder.WithLookupIP(lookup.CachedLookupIP(net.LookupIP, cfg.General.DNSCacheTTL))
-	builder.WithEnvoyAdminClient(admin.NewEnvoyAdminClient(builder.ResourceManager(), builder.Config()))
+	envoyAdminClient, err := admin.NewEnvoyAdminClient(
+		builder.ResourceManager(),
+		builder.CaManagers(),
+		builder.Config().DpServer.TlsCertFile,
+		builder.Config().DpServer.TlsKeyFile,
+		builder.Config().GetEnvoyAdminPort(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	builder.WithEnvoyAdminClient(envoyAdminClient)
 	builder.WithAPIManager(customization.NewAPIList())
 	builder.WithXDSHooks(&xds_hooks.Hooks{})
 	builder.WithCAProvider(secrets.NewCaProvider(builder.CaManagers()))
@@ -110,6 +127,8 @@ func buildRuntime(appCtx context.Context, cfg kuma_cp.Config) (core_runtime.Runt
 	builder.WithAccess(core_runtime.Access{
 		ResourceAccess:       resources_access.NewAdminResourceAccess(builder.Config().Access.Static.AdminResources),
 		DataplaneTokenAccess: tokens_access.NewStaticGenerateDataplaneTokenAccess(builder.Config().Access.Static.GenerateDPToken),
+		ZoneTokenAccess:      zone_access.NewStaticZoneTokenAccess(builder.Config().Access.Static.GenerateZoneToken),
+		ConfigDumpAccess:     access.NewStaticConfigDumpAccess(builder.Config().Access.Static.ViewConfigDump),
 	})
 
 	if err := initializeAPIServerAuthenticator(builder); err != nil {
@@ -184,9 +203,9 @@ func startReporter(runtime core_runtime.Runtime) error {
 }
 
 func initializeBeforeBootstrap(cfg kuma_cp.Config, builder *core_runtime.Builder) error {
-	for name, plugin := range core_plugins.Plugins().BootstrapPlugins() {
-		if (cfg.Environment == config_core.KubernetesEnvironment && name == core_plugins.Universal) ||
-			(cfg.Environment == config_core.UniversalEnvironment && name == core_plugins.Kubernetes) {
+	for _, plugin := range core_plugins.Plugins().BootstrapPlugins() {
+		if (cfg.Environment == config_core.KubernetesEnvironment && plugin.Name() == core_plugins.Universal) ||
+			(cfg.Environment == config_core.UniversalEnvironment && plugin.Name() == core_plugins.Kubernetes) {
 			continue
 		}
 		if err := plugin.BeforeBootstrap(builder, nil); err != nil {
@@ -197,9 +216,9 @@ func initializeBeforeBootstrap(cfg kuma_cp.Config, builder *core_runtime.Builder
 }
 
 func initializeAfterBootstrap(cfg kuma_cp.Config, builder *core_runtime.Builder) error {
-	for name, plugin := range core_plugins.Plugins().BootstrapPlugins() {
-		if (cfg.Environment == config_core.KubernetesEnvironment && name == core_plugins.Universal) ||
-			(cfg.Environment == config_core.UniversalEnvironment && name == core_plugins.Kubernetes) {
+	for _, plugin := range core_plugins.Plugins().BootstrapPlugins() {
+		if (cfg.Environment == config_core.KubernetesEnvironment && plugin.Name() == core_plugins.Universal) ||
+			(cfg.Environment == config_core.UniversalEnvironment && plugin.Name() == core_plugins.Kubernetes) {
 			continue
 		}
 		if err := plugin.AfterBootstrap(builder, nil); err != nil {
@@ -328,7 +347,7 @@ func initializeResourceManager(cfg kuma_cp.Config, builder *core_runtime.Builder
 
 	customizableManager.Customize(
 		mesh.MeshType,
-		mesh_managers.NewMeshManager(builder.ResourceStore(), customizableManager, builder.CaManagers(), registry.Global(), builder.MeshValidator()),
+		mesh_managers.NewMeshManager(builder.ResourceStore(), customizableManager, builder.CaManagers(), registry.Global(), builder.ResourceValidators().Mesh),
 	)
 
 	rateLimitValidator := ratelimit_managers.RateLimitValidator{
@@ -349,7 +368,7 @@ func initializeResourceManager(cfg kuma_cp.Config, builder *core_runtime.Builder
 
 	customizableManager.Customize(
 		mesh.DataplaneType,
-		dataplane.NewDataplaneManager(builder.ResourceStore(), builder.Config().Multizone.Zone.Name),
+		dataplane.NewDataplaneManager(builder.ResourceStore(), builder.Config().Multizone.Zone.Name, builder.ResourceValidators().Dataplane),
 	)
 
 	customizableManager.Customize(
@@ -370,6 +389,11 @@ func initializeResourceManager(cfg kuma_cp.Config, builder *core_runtime.Builder
 	customizableManager.Customize(
 		mesh.ZoneIngressInsightType,
 		zoneingressinsight.NewZoneIngressInsightManager(builder.ResourceStore(), builder.Config().Metrics.Dataplane),
+	)
+
+	customizableManager.Customize(
+		mesh.ZoneEgressInsightType,
+		zoneegressinsight.NewZoneEgressInsightManager(builder.ResourceStore(), builder.Config().Metrics.Dataplane),
 	)
 
 	var cipher secret_cipher.Cipher

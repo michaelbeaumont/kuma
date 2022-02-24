@@ -2,10 +2,9 @@ package datasource_test
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	system_proto "github.com/kumahq/kuma/api/system/v1alpha1"
@@ -69,9 +68,9 @@ var _ = Describe("DataSource Loader", func() {
 	Context("File", func() {
 		It("should load from file", func() {
 			// given
-			file, err := ioutil.TempFile("", "")
+			file, err := os.CreateTemp("", "")
 			Expect(err).ToNot(HaveOccurred())
-			err = ioutil.WriteFile(file.Name(), []byte("abc"), os.ModeAppend)
+			err = os.WriteFile(file.Name(), []byte("abc"), os.ModeAppend)
 			Expect(err).ToNot(HaveOccurred())
 
 			// when

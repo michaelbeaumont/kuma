@@ -53,7 +53,6 @@ func (m *Metrics) Validate() error {
 }
 
 type DataplaneMetrics struct {
-	Enabled           bool          `yaml:"enabled" envconfig:"kuma_metrics_dataplane_enabled"`
 	SubscriptionLimit int           `yaml:"subscriptionLimit" envconfig:"kuma_metrics_dataplane_subscription_limit"`
 	IdleTimeout       time.Duration `yaml:"idleTimeout" envconfig:"kuma_metrics_dataplane_idle_timeout"`
 }
@@ -69,7 +68,6 @@ func (d *DataplaneMetrics) Validate() error {
 }
 
 type ZoneMetrics struct {
-	Enabled           bool          `yaml:"enabled" envconfig:"kuma_metrics_zone_enabled"`
 	SubscriptionLimit int           `yaml:"subscriptionLimit" envconfig:"kuma_metrics_zone_subscription_limit"`
 	IdleTimeout       time.Duration `yaml:"idleTimeout" envconfig:"kuma_metrics_zone_idle_timeout"`
 }
@@ -143,6 +141,8 @@ type Config struct {
 	DpServer *dp_server.DpServerConfig `yaml:"dpServer"`
 	// Access Control configuration
 	Access access.AccessConfig `yaml:"access"`
+	// Configuration of experimental features
+	Experimental ExperimentalConfig `yaml:"experimental"`
 }
 
 func (c *Config) Sanitize() {
@@ -176,12 +176,10 @@ var DefaultConfig = func() Config {
 		},
 		Metrics: &Metrics{
 			Dataplane: &DataplaneMetrics{
-				Enabled:           true,
 				SubscriptionLimit: 2,
 				IdleTimeout:       5 * time.Minute,
 			},
 			Zone: &ZoneMetrics{
-				Enabled:           true,
 				SubscriptionLimit: 10,
 				IdleTimeout:       5 * time.Minute,
 			},
@@ -200,6 +198,9 @@ var DefaultConfig = func() Config {
 		Diagnostics: diagnostics.DefaultDiagnosticsConfig(),
 		DpServer:    dp_server.DefaultDpServerConfig(),
 		Access:      access.DefaultAccessConfig(),
+		Experimental: ExperimentalConfig{
+			MeshGateway: false,
+		},
 	}
 }
 
@@ -309,4 +310,9 @@ func DefaultGeneralConfig() *GeneralConfig {
 		DNSCacheTTL: 10 * time.Second,
 		WorkDir:     "",
 	}
+}
+
+type ExperimentalConfig struct {
+	// If true, experimental built-in gateway is enabled.
+	MeshGateway bool `yaml:"meshGateway" envconfig:"KUMA_EXPERIMENTAL_MESHGATEWAY"`
 }

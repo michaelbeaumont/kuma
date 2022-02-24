@@ -35,7 +35,7 @@ func Setup(rt runtime.Runtime) (err error) {
 	reg := registry.Global()
 	kdsServer, err := kds_server.New(kdsGlobalLog, rt, reg.ObjectTypes(model.HasKDSFlag(model.ProvidedByGlobal)),
 		"global", rt.Config().Multizone.Global.KDS.RefreshInterval,
-		rt.KDSContext().GlobalProvidedFilter, true)
+		rt.KDSContext().GlobalProvidedFilter, rt.KDSContext().GlobalResourceMapper, true)
 	if err != nil {
 		return err
 	}
@@ -102,11 +102,17 @@ func Callbacks(s sync_store.ResourceSyncer, k8sStore bool, kubeFactory resources
 					util.AddSuffixToNames(rs.GetItems(), "default")
 				}
 			}
+
 			if rs.GetItemType() == core_mesh.ZoneIngressType {
 				for _, zi := range rs.(*core_mesh.ZoneIngressResourceList).Items {
 					zi.Spec.Zone = clusterName
 				}
+			} else if rs.GetItemType() == core_mesh.ZoneEgressType {
+				for _, ze := range rs.(*core_mesh.ZoneEgressResourceList).Items {
+					ze.Spec.Zone = clusterName
+				}
 			}
+
 			return s.Sync(rs, sync_store.PrefilterBy(func(r model.Resource) bool {
 				return strings.HasPrefix(r.GetMeta().GetName(), fmt.Sprintf("%s.", clusterName))
 			}), sync_store.Zone(clusterName))

@@ -1,12 +1,10 @@
 package config_test
 
 import (
-	"io/ioutil"
 	"os"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config"
@@ -23,7 +21,7 @@ var _ = Describe("Config loader", func() {
 
 	BeforeEach(func() {
 		os.Clearenv()
-		file, err := ioutil.TempFile("", "*")
+		file, err := os.CreateTemp("", "*")
 		Expect(err).ToNot(HaveOccurred())
 		configFile = file
 	})
@@ -47,7 +45,7 @@ var _ = Describe("Config loader", func() {
 	DescribeTable("should load config",
 		func(given testCase) {
 			// given file with sample config
-			file, err := ioutil.TempFile("", "*")
+			file, err := os.CreateTemp("", "*")
 			Expect(err).ToNot(HaveOccurred())
 			_, err = file.WriteString(given.yamlFileConfig)
 			Expect(err).ToNot(HaveOccurred())
@@ -140,6 +138,7 @@ var _ = Describe("Config loader", func() {
 			Expect(cfg.MonitoringAssignmentServer.ApiVersions).To(ContainElements("v1"))
 
 			Expect(cfg.Runtime.Kubernetes.ControlPlaneServiceName).To(Equal("custom-control-plane"))
+			Expect(cfg.Runtime.Kubernetes.ServiceAccountName).To(Equal("custom-sa"))
 
 			Expect(cfg.Runtime.Kubernetes.AdmissionServer.Address).To(Equal("127.0.0.2"))
 			Expect(cfg.Runtime.Kubernetes.AdmissionServer.Port).To(Equal(uint32(9443)))
@@ -218,12 +217,10 @@ var _ = Describe("Config loader", func() {
 			Expect(cfg.XdsServer.DataplaneConfigurationRefreshInterval).To(Equal(21 * time.Second))
 			Expect(cfg.XdsServer.NACKBackoff).To(Equal(10 * time.Second))
 
-			Expect(cfg.Metrics.Zone.Enabled).To(BeFalse())
 			Expect(cfg.Metrics.Zone.SubscriptionLimit).To(Equal(23))
 			Expect(cfg.Metrics.Zone.IdleTimeout).To(Equal(2 * time.Minute))
 			Expect(cfg.Metrics.Mesh.MinResyncTimeout).To(Equal(35 * time.Second))
 			Expect(cfg.Metrics.Mesh.MaxResyncTimeout).To(Equal(27 * time.Second))
-			Expect(cfg.Metrics.Dataplane.Enabled).To(BeFalse())
 			Expect(cfg.Metrics.Dataplane.SubscriptionLimit).To(Equal(47))
 			Expect(cfg.Metrics.Dataplane.IdleTimeout).To(Equal(1 * time.Minute))
 
@@ -247,6 +244,12 @@ var _ = Describe("Config loader", func() {
 			Expect(cfg.Access.Static.GenerateDPToken.Groups).To(Equal([]string{"dp-group1", "dp-group2"}))
 			Expect(cfg.Access.Static.GenerateUserToken.Users).To(Equal([]string{"ut-admin1", "ut-admin2"}))
 			Expect(cfg.Access.Static.GenerateUserToken.Groups).To(Equal([]string{"ut-group1", "ut-group2"}))
+			Expect(cfg.Access.Static.GenerateZoneToken.Users).To(Equal([]string{"zt-admin1", "zt-admin2"}))
+			Expect(cfg.Access.Static.GenerateZoneToken.Groups).To(Equal([]string{"zt-group1", "zt-group2"}))
+			Expect(cfg.Access.Static.ViewConfigDump.Users).To(Equal([]string{"zt-admin1", "zt-admin2"}))
+			Expect(cfg.Access.Static.ViewConfigDump.Groups).To(Equal([]string{"zt-group1", "zt-group2"}))
+
+			Expect(cfg.Experimental.MeshGateway).To(BeTrue())
 		},
 		Entry("from config file", testCase{
 			envVars: map[string]string{},
@@ -318,6 +321,7 @@ runtime:
   universal:
     dataplaneCleanupAge: 1h
   kubernetes:
+    serviceAccountName: custom-sa
     controlPlaneServiceName: custom-control-plane
     admissionServer:
       address: 127.0.0.2
@@ -417,7 +421,6 @@ xdsServer:
   nackBackoff: 10s
 metrics:
   zone:
-    enabled: false
     subscriptionLimit: 23
     idleTimeout: 2m
   mesh:
@@ -425,7 +428,6 @@ metrics:
     maxResyncTimeout: 27s
   dataplane:
     subscriptionLimit: 47
-    enabled: false
     idleTimeout: 1m
 dpServer:
   tlsCertFile: /test/path
@@ -455,6 +457,14 @@ access:
     generateUserToken:
       users: ["ut-admin1", "ut-admin2"]
       groups: ["ut-group1", "ut-group2"]
+    generateZoneToken:
+      users: ["zt-admin1", "zt-admin2"]
+      groups: ["zt-group1", "zt-group2"]
+    viewConfigDump:
+      users: ["zt-admin1", "zt-admin2"]
+      groups: ["zt-group1", "zt-group2"]
+experimental:
+  meshGateway: true
 `,
 		}),
 		Entry("from env variables", testCase{
@@ -506,6 +516,7 @@ access:
 				"KUMA_MONITORING_ASSIGNMENT_SERVER_ASSIGNMENT_REFRESH_INTERVAL":                            "12s",
 				"KUMA_REPORTS_ENABLED":                                                                     "false",
 				"KUMA_RUNTIME_KUBERNETES_CONTROL_PLANE_SERVICE_NAME":                                       "custom-control-plane",
+				"KUMA_RUNTIME_KUBERNETES_SERVICE_ACCOUNT_NAME":                                             "custom-sa",
 				"KUMA_RUNTIME_KUBERNETES_ADMISSION_SERVER_ADDRESS":                                         "127.0.0.2",
 				"KUMA_RUNTIME_KUBERNETES_ADMISSION_SERVER_PORT":                                            "9443",
 				"KUMA_RUNTIME_KUBERNETES_ADMISSION_SERVER_CERT_DIR":                                        "/var/run/secrets/kuma.io/kuma-admission-server/tls-cert",
@@ -571,11 +582,9 @@ access:
 				"KUMA_XDS_SERVER_DATAPLANE_STATUS_FLUSH_INTERVAL":                                          "7s",
 				"KUMA_XDS_SERVER_DATAPLANE_CONFIGURATION_REFRESH_INTERVAL":                                 "21s",
 				"KUMA_XDS_SERVER_NACK_BACKOFF":                                                             "10s",
-				"KUMA_METRICS_ZONE_ENABLED":                                                                "false",
 				"KUMA_METRICS_ZONE_SUBSCRIPTION_LIMIT":                                                     "23",
 				"KUMA_METRICS_ZONE_IDLE_TIMEOUT":                                                           "2m",
 				"KUMA_METRICS_MESH_MAX_RESYNC_TIMEOUT":                                                     "27s",
-				"KUMA_METRICS_DATAPLANE_ENABLED":                                                           "false",
 				"KUMA_METRICS_MESH_MIN_RESYNC_TIMEOUT":                                                     "35s",
 				"KUMA_METRICS_DATAPLANE_SUBSCRIPTION_LIMIT":                                                "47",
 				"KUMA_METRICS_DATAPLANE_IDLE_TIMEOUT":                                                      "1m",
@@ -598,6 +607,11 @@ access:
 				"KUMA_ACCESS_STATIC_GENERATE_DP_TOKEN_GROUPS":                                              "dp-group1,dp-group2",
 				"KUMA_ACCESS_STATIC_GENERATE_USER_TOKEN_USERS":                                             "ut-admin1,ut-admin2",
 				"KUMA_ACCESS_STATIC_GENERATE_USER_TOKEN_GROUPS":                                            "ut-group1,ut-group2",
+				"KUMA_ACCESS_STATIC_GENERATE_ZONE_TOKEN_USERS":                                             "zt-admin1,zt-admin2",
+				"KUMA_ACCESS_STATIC_GENERATE_ZONE_TOKEN_GROUPS":                                            "zt-group1,zt-group2",
+				"KUMA_ACCESS_STATIC_GET_CONFIG_DUMP_USERS":                                                 "zt-admin1,zt-admin2",
+				"KUMA_ACCESS_STATIC_GET_CONFIG_DUMP_GROUPS":                                                "zt-group1,zt-group2",
+				"KUMA_EXPERIMENTAL_MESHGATEWAY":                                                            "true",
 			},
 			yamlFileConfig: "",
 		}),
@@ -605,7 +619,7 @@ access:
 
 	It("should override via env var", func() {
 		// given file with sample cfg
-		file, err := ioutil.TempFile("", "*")
+		file, err := os.CreateTemp("", "*")
 		Expect(err).ToNot(HaveOccurred())
 		_, err = file.WriteString("environment: kubernetes")
 		Expect(err).ToNot(HaveOccurred())

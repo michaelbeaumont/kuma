@@ -3,10 +3,13 @@ package framework
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/ghodss/yaml"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
+	"github.com/pkg/errors"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,9 +48,28 @@ func YamlK8sObject(obj runtime.Object) InstallFunc {
 		if err != nil {
 			return err
 		}
+
+		// Remove "status" from Kubernetes YAMLs
+		// "status" is an element in Kubernetes Object that is filled by Kubernetes, not a user.
+		// Encoder by default also serializes the Status object with default values (since those are not pointers)
+		// that does not have omitempty, so for example in case of StatefulSet.Status it will be
+		// status:
+		//   replicas: 0
+		//   availableReplicas: 0
+		// However, availableReplicas is a beta field that is not available in previous version of Kubernetes.
+		obj := map[string]interface{}{}
+		if err := yaml.Unmarshal(b.Bytes(), &obj); err != nil {
+			return err
+		}
+		delete(obj, "status")
+		bytes, err := yaml.Marshal(obj)
+		if err != nil {
+			return err
+		}
+
 		_, err = retry.DoWithRetryE(cluster.GetTesting(), "install yaml resource", DefaultRetries, DefaultTimeout,
 			func() (s string, err error) {
-				return "", k8s.KubectlApplyFromStringE(cluster.GetTesting(), cluster.GetKubectlOptions(), b.String())
+				return "", k8s.KubectlApplyFromStringE(cluster.GetTesting(), cluster.GetKubectlOptions(), string(bytes))
 			})
 		return err
 	}
@@ -86,14 +108,14 @@ func YamlPathK8s(path string) InstallFunc {
 
 func Kuma(mode core.CpMode, opt ...KumaDeploymentOption) InstallFunc {
 	return func(cluster Cluster) error {
-		opt = append(opt, WithIPv6(IsIPv6()))
+		opt = append(opt, WithIPv6(Config.IPV6))
 		return cluster.DeployKuma(mode, opt...)
 	}
 }
 
 func KumaDNS() InstallFunc {
 	return func(cluster Cluster) error {
-		err := cluster.InjectDNS(KumaNamespace)
+		err := cluster.InjectDNS(Config.KumaNamespace)
 		return err
 	}
 }
@@ -105,9 +127,9 @@ func WaitService(namespace, service string) InstallFunc {
 	}
 }
 
-func WaitNumPods(num int, app string) InstallFunc {
+func WaitNumPods(namespace string, num int, app string) InstallFunc {
 	return func(c Cluster) error {
-		k8s.WaitUntilNumPodsCreated(c.GetTesting(), c.GetKubectlOptions(),
+		k8s.WaitUntilNumPodsCreated(c.GetTesting(), c.GetKubectlOptions(namespace),
 			metav1.ListOptions{
 				LabelSelector: fmt.Sprintf("app=%s", app),
 			}, num, DefaultRetries, DefaultTimeout)
@@ -138,28 +160,65 @@ func WaitUntilJobSucceed(namespace, app string) InstallFunc {
 	}
 }
 
-func IngressUniversal(token string) InstallFunc {
+func zoneRelatedResource(
+	token string,
+	appType AppMode,
+	resourceManifestFunc func(address string, port, advertisedPort int) string,
+) func(cluster Cluster) error {
+	dpName := string(appType)
+
 	return func(cluster Cluster) error {
 		uniCluster := cluster.(*UniversalCluster)
-		isipv6 := IsIPv6()
-		verbose := false
-		app, err := NewUniversalApp(cluster.GetTesting(), uniCluster.name, AppIngress, AppIngress, isipv6, verbose, []string{})
+
+		app, err := NewUniversalApp(
+			cluster.GetTesting(),
+			uniCluster.name,
+			dpName,
+			appType,
+			Config.IPV6,
+			false,
+			[]string{},
+		)
 		if err != nil {
 			return err
 		}
 
-		app.CreateMainApp([]string{}, []string{})
+		app.CreateMainApp(nil, []string{})
 
 		err = app.mainApp.Start()
 		if err != nil {
 			return err
 		}
-		uniCluster.apps[AppIngress] = app
 
-		publicAddress := uniCluster.apps[AppIngress].ip
-		dpyaml := fmt.Sprintf(ZoneIngress, publicAddress, kdsPort, kdsPort)
-		return uniCluster.CreateZoneIngress(app, "ingress", app.ip, dpyaml, token, false)
+		uniCluster.apps[dpName] = app
+		publicAddress := app.ip
+		dpYAML := resourceManifestFunc(publicAddress, kdsPort, kdsPort)
+
+		switch appType {
+		case AppIngress:
+			return uniCluster.CreateZoneIngress(app, dpName, publicAddress, dpYAML, token, false)
+		case AppEgress:
+			return uniCluster.CreateZoneEgress(app, dpName, publicAddress, dpYAML, token, false)
+		default:
+			return errors.Errorf("unsupported appType: %s", appType)
+		}
 	}
+}
+
+func IngressUniversal(token string) InstallFunc {
+	manifestFunc := func(address string, port, advertisedPort int) string {
+		return fmt.Sprintf(ZoneIngress, address, port, advertisedPort)
+	}
+
+	return zoneRelatedResource(token, AppIngress, manifestFunc)
+}
+
+func EgressUniversal(token string) InstallFunc {
+	manifestFunc := func(_ string, port, _ int) string {
+		return fmt.Sprintf(ZoneEgress, port)
+	}
+
+	return zoneRelatedResource(token, AppEgress, manifestFunc)
 }
 
 func DemoClientK8s(mesh string) InstallFunc {
@@ -204,13 +263,27 @@ spec:
               memory: 128Mi
 `
 	return Combine(
-		YamlK8s(fmt.Sprintf(deployment, mesh, GetUniversalImage())),
-		WaitNumPods(1, name),
+		YamlK8s(fmt.Sprintf(deployment, mesh, Config.GetUniversalImage())),
+		WaitNumPods(TestNamespace, 1, name),
 		WaitPodsAvailable(TestNamespace, name),
 	)
 }
 
 func NamespaceWithSidecarInjection(namespace string) InstallFunc {
+	return YamlK8s(fmt.Sprintf(`
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: %s
+  labels:
+    kuma.io/sidecar-injection: "enabled"
+`, namespace))
+}
+
+// NamespaceWithSidecarInjectionOnAnnotation creates namespace with sidecar-injection annotation
+// Since we still support annotations for backwards compatibility, we should also test it.
+// Use NamespaceWithSidecarInjection unless you want to explicitly check backwards compatibility.
+func NamespaceWithSidecarInjectionOnAnnotation(namespace string) InstallFunc {
 	return YamlK8s(fmt.Sprintf(`
 apiVersion: v1
 kind: Namespace
@@ -243,7 +316,7 @@ func DemoClientJobK8s(namespace, mesh, destination string) InstallFunc {
 					Containers: []corev1.Container{
 						{
 							Name:            name,
-							Image:           GetUniversalImage(),
+							Image:           Config.GetUniversalImage(),
 							ImagePullPolicy: "IfNotPresent",
 							Command:         []string{"curl"},
 							Args:            []string{"-v", "-m", "3", "--fail", destination},
@@ -267,7 +340,7 @@ func DemoClientUniversal(name, mesh, token string, opt ...AppDeploymentOption) I
 		args := []string{"ncat", "-lvk", "-p", "3000"}
 		appYaml := ""
 		if opts.transparent {
-			appYaml = fmt.Sprintf(DemoClientDataplaneTransparentProxy, mesh, "3000", name, redirectPortInbound, redirectPortInboundV6, redirectPortOutbound)
+			appYaml = fmt.Sprintf(DemoClientDataplaneTransparentProxy, mesh, "3000", name, redirectPortInbound, redirectPortInboundV6, redirectPortOutbound, strings.Join(opts.reachableServices, ","))
 		} else {
 			if opts.serviceProbe {
 				appYaml = fmt.Sprintf(DemoClientDataplaneWithServiceProbe, mesh, "13000", "3000", name, "80", "8080")
@@ -283,7 +356,7 @@ func DemoClientUniversal(name, mesh, token string, opt ...AppDeploymentOption) I
 			WithToken(token),
 			WithArgs(args),
 			WithYaml(appYaml),
-			WithIPv6(IsIPv6()))
+			WithIPv6(Config.IPV6))
 		return cluster.DeployApp(opt...)
 	}
 }
@@ -347,7 +420,7 @@ networking:
 			WithToken(token),
 			WithArgs(args),
 			WithYaml(appYaml),
-			WithIPv6(IsIPv6()))
+			WithIPv6(Config.IPV6))
 		return cluster.DeployApp(opt...)
 	}
 }

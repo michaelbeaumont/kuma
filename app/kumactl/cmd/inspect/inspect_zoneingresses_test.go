@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
-	"strings"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	gomega_types "github.com/onsi/gomega/types"
 	"github.com/spf13/cobra"
@@ -266,7 +264,7 @@ var _ = Describe("kumactl inspect zone-ingresses", func() {
 		type testCase struct {
 			outputFormat string
 			goldenFile   string
-			matcher      func(interface{}) gomega_types.GomegaMatcher
+			matcher      func(path ...string) gomega_types.GomegaMatcher
 		}
 
 		DescribeTable("kumactl inspect zone-ingresses -o table|json|yaml",
@@ -280,31 +278,27 @@ var _ = Describe("kumactl inspect zone-ingresses", func() {
 				err := rootCmd.Execute()
 				// then
 				Expect(err).ToNot(HaveOccurred())
-				Expect(buf.String()).To(matchers.MatchGoldenEqual(filepath.Join("testdata", given.goldenFile)))
+				Expect(buf.String()).To(matchers.MatchGoldenEqual("testdata", given.goldenFile))
 			},
 			Entry("should support Table output by default", testCase{
 				outputFormat: "",
 				goldenFile:   "inspect-zone-ingresses.golden.txt",
-				matcher: func(expected interface{}) gomega_types.GomegaMatcher {
-					return WithTransform(strings.TrimSpace, Equal(strings.TrimSpace(string(expected.([]byte)))))
-				},
+				matcher:      matchers.MatchGoldenEqual,
 			}),
 			Entry("should support Table output explicitly", testCase{
 				outputFormat: "-otable",
 				goldenFile:   "inspect-zone-ingresses.golden.txt",
-				matcher: func(expected interface{}) gomega_types.GomegaMatcher {
-					return WithTransform(strings.TrimSpace, Equal(strings.TrimSpace(string(expected.([]byte)))))
-				},
+				matcher:      matchers.MatchGoldenEqual,
 			}),
 			Entry("should support JSON output", testCase{
 				outputFormat: "-ojson",
 				goldenFile:   "inspect-zone-ingresses.golden.json",
-				matcher:      MatchJSON,
+				matcher:      matchers.MatchGoldenJSON,
 			}),
 			Entry("should support YAML output", testCase{
 				outputFormat: "-oyaml",
 				goldenFile:   "inspect-zone-ingress.golden.yaml",
-				matcher:      MatchYAML,
+				matcher:      matchers.MatchGoldenYAML,
 			}),
 		)
 	})

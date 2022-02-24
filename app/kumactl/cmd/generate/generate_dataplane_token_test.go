@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/spf13/cobra"
 
@@ -26,7 +26,7 @@ type staticDataplaneTokenGenerator struct {
 
 var _ tokens.DataplaneTokenClient = &staticDataplaneTokenGenerator{}
 
-func (s *staticDataplaneTokenGenerator) Generate(name string, mesh string, tags map[string][]string, dpType string) (string, error) {
+func (s *staticDataplaneTokenGenerator) Generate(name string, mesh string, tags map[string][]string, dpType string, validFor time.Duration) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
@@ -44,7 +44,7 @@ var _ = Describe("kumactl generate dataplane-token", func() {
 		ctx = &kumactl_cmd.RootContext{
 			Runtime: kumactl_cmd.RootRuntime{
 				Registry: registry.NewTypeRegistry(),
-				NewBaseAPIServerClient: func(server *config_proto.ControlPlaneCoordinates_ApiServer) (util_http.Client, error) {
+				NewBaseAPIServerClient: func(server *config_proto.ControlPlaneCoordinates_ApiServer, _ time.Duration) (util_http.Client, error) {
 					return nil, nil
 				},
 				NewDataplaneTokenClient: func(util_http.Client) tokens.DataplaneTokenClient {

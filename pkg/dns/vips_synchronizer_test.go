@@ -3,7 +3,7 @@ package dns_test
 import (
 	"context"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -95,32 +95,24 @@ var _ = Describe("DNS sync", func() {
 
 		It("should sync another service", func() {
 			// when "backend" service is up
-			backendDp := core_mesh.DataplaneResource{
-				Spec: &mesh_proto.Dataplane{
-					Networking: &mesh_proto.Dataplane_Networking{
+			zoneIngress := core_mesh.ZoneIngressResource{
+				Spec: &mesh_proto.ZoneIngress{
+					Zone: "zone-2",
+					Networking: &mesh_proto.ZoneIngress_Networking{
 						Address: "192.168.0.1",
-						Ingress: &mesh_proto.Dataplane_Networking_Ingress{
-							AvailableServices: []*mesh_proto.Dataplane_Networking_Ingress_AvailableService{
-								{
-									Mesh: "default",
-									Tags: map[string]string{
-										"kuma.io/service": "backend",
-									},
-								},
-							},
-						},
-						Inbound: []*mesh_proto.Dataplane_Networking_Inbound{
-							{
-								Port: 1234,
-								Tags: map[string]string{
-									mesh_proto.ZoneTag: "zone-2",
-								},
+						Port:    1234,
+					},
+					AvailableServices: []*mesh_proto.ZoneIngress_AvailableService{
+						{
+							Mesh: "default",
+							Tags: map[string]string{
+								"kuma.io/service": "backend",
 							},
 						},
 					},
 				},
 			}
-			err := resManager.Create(context.Background(), &backendDp, core_store.CreateByKey("dp-2", "default"))
+			err := resManager.Create(context.Background(), &zoneIngress, core_store.CreateByKey("zone-2-ingress", model.NoMesh))
 			Expect(err).ToNot(HaveOccurred())
 
 			// then service "backend" is synchronized to DNS Resolver

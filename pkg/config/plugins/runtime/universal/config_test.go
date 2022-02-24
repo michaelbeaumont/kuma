@@ -1,11 +1,11 @@
 package universal_test
 
 import (
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config"
@@ -37,7 +37,7 @@ var _ = Describe("Config", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// when
-		expected, err := ioutil.ReadFile(filepath.Join("testdata", "default-config.golden.yaml"))
+		expected, err := os.ReadFile(filepath.Join("testdata", "default-config.golden.yaml"))
 		// then
 		Expect(err).ToNot(HaveOccurred())
 		// and

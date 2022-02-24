@@ -4,8 +4,7 @@ import (
 	"context"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -265,7 +264,7 @@ var _ = Describe("Retry", func() {
 					expectedRetries = nil
 				}
 				// when
-				retries, _ := BuildRetryMap(given.dataplane, given.retries, given.destinations)
+				retries := BuildRetryMap(given.dataplane, given.retries, given.destinations)
 				// expect
 				Expect(retries).Should(Equal(expectedRetries))
 			},

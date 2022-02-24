@@ -4,33 +4,28 @@ import (
 	"sort"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
-	core_xds "github.com/kumahq/kuma/pkg/core/xds"
+	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
+	"github.com/kumahq/kuma/pkg/core/resources/model"
+	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/match"
 	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/route"
 	xds_context "github.com/kumahq/kuma/pkg/xds/context"
-	envoy_names "github.com/kumahq/kuma/pkg/xds/envoy/names"
 	envoy_routes "github.com/kumahq/kuma/pkg/xds/envoy/routes"
+	v3 "github.com/kumahq/kuma/pkg/xds/envoy/routes/v3"
 )
 
-// RouteTableGenerator generates Envoy xDS resources gateway routes from
-// the current route table.
-type RouteTableGenerator struct{}
-
-// SupportsProtocol is always true for RouteTableGenerator.
-func (*RouteTableGenerator) SupportsProtocol(mesh_proto.Gateway_Listener_Protocol) bool {
-	return true
-}
-
-// GenerateHost generates xDS resources for the current route table.
-func (r *RouteTableGenerator) GenerateHost(ctx xds_context.Context, info *GatewayResourceInfo) (*core_xds.ResourceSet, error) {
-	resources := ResourceAggregator{}
-
+// GenerateVirtualHost generates xDS resources for the current route table.
+func GenerateVirtualHost(
+	ctx xds_context.Context, info GatewayListenerInfo, host GatewayHost, routes []route.Entry,
+) (
+	*envoy_routes.VirtualHostBuilder, error,
+) {
 	vh := envoy_routes.NewVirtualHostBuilder(info.Proxy.APIVersion).Configure(
-		envoy_routes.CommonVirtualHost(envoy_names.Join(info.Listener.ResourceName, info.Host.Hostname)),
-		envoy_routes.DomainNames(info.Host.Hostname),
+		envoy_routes.CommonVirtualHost(host.Hostname),
+		envoy_routes.DomainNames(host.Hostname),
 	)
 
 	// Ensure that we get TLS on HTTPS protocol listeners.
-	if info.Listener.Protocol == mesh_proto.Gateway_Listener_HTTPS {
+	if info.Listener.Protocol == mesh_proto.MeshGateway_Listener_HTTPS {
 		vh.Configure(
 			envoy_routes.RequireTLS(),
 			// Set HSTS header to 1 year.
@@ -41,15 +36,14 @@ func (r *RouteTableGenerator) GenerateHost(ctx xds_context.Context, info *Gatewa
 		)
 	}
 
-	// TODO(jpeach) match the Retry policy for this virtual host.
 	// TODO(jpeach) match the FaultInjection policy for this virtual host.
 
 	// TODO(jpeach) apply additional virtual host configuration.
 
 	// Sort routing table entries so the most specific match comes first.
-	sort.Sort(route.Sorter(info.RouteTable.Entries))
+	sort.Sort(route.Sorter(routes))
 
-	for _, e := range info.RouteTable.Entries {
+	for _, e := range routes {
 		routeBuilder := route.RouteBuilder{}
 
 		routeBuilder.Configure(
@@ -61,6 +55,33 @@ func (r *RouteTableGenerator) GenerateHost(ctx xds_context.Context, info *Gatewa
 			route.RouteActionRedirect(e.Action.Redirect),
 			route.RouteActionForward(e.Action.Forward),
 		)
+
+		// Generate a retry policy for this route, if there is one.
+		routeBuilder.Configure(
+			retryRouteConfigurers(
+				route.InferForwardingProtocol(e.Action.Forward),
+				match.BestConnectionPolicyForDestination(e.Action.Forward, core_mesh.RetryType),
+			)...,
+		)
+
+		if t := match.BestConnectionPolicyForDestination(e.Action.Forward, core_mesh.TimeoutType); t != nil {
+			timeout := t.(*core_mesh.TimeoutResource)
+			routeBuilder.Configure(
+				route.RouteActionRequestTimeout(timeout.Spec.GetConf().GetHttp().GetRequestTimeout().AsDuration()),
+			)
+		}
+
+		if r := match.BestConnectionPolicyForDestination(e.Action.Forward, core_mesh.RateLimitType); r != nil {
+			ratelimit := r.(*core_mesh.RateLimitResource)
+			conf, err := v3.NewRateLimitConfiguration(ratelimit.Spec.GetConf().GetHttp())
+			if err != nil {
+				return nil, err
+			}
+
+			routeBuilder.Configure(
+				route.RoutePerFilterConfig("envoy.filters.http.local_ratelimit", conf),
+			)
+		}
 
 		for _, m := range e.Match.ExactHeader {
 			routeBuilder.Configure(route.RouteMatchExactHeader(m.Key, m.Value))
@@ -106,7 +127,61 @@ func (r *RouteTableGenerator) GenerateHost(ctx xds_context.Context, info *Gatewa
 		vh.Configure(route.VirtualHostRoute(&routeBuilder))
 	}
 
-	info.Resources.RouteConfiguration.Configure(envoy_routes.VirtualHost(vh))
+	return vh, nil
+}
 
-	return resources.Get(), nil
+// retryRouteConfigurers returns the set of route configurers needed to implement the retry policy (if there is one).
+func retryRouteConfigurers(protocol core_mesh.Protocol, policy model.Resource) []route.RouteConfigurer {
+	retry, _ := policy.(*core_mesh.RetryResource)
+	if retry == nil {
+		return nil
+	}
+
+	methodStrings := func(methods []mesh_proto.HttpMethod) []string {
+		var names []string
+		for _, m := range methods {
+			if m != mesh_proto.HttpMethod_NONE {
+				names = append(names, m.String())
+			}
+		}
+		return names
+	}
+
+	grpcConditionStrings := func(conditions []mesh_proto.Retry_Conf_Grpc_RetryOn) []string {
+		var names []string
+		for _, c := range conditions {
+			names = append(names, c.String())
+		}
+		return names
+	}
+
+	configurers := []route.RouteConfigurer{
+		route.RouteActionRetryDefault(protocol),
+	}
+
+	switch protocol {
+	case core_mesh.ProtocolHTTP, core_mesh.ProtocolHTTP2:
+		conf := retry.Spec.GetConf().GetHttp()
+		configurers = append(configurers,
+			route.RouteActionRetryOnStatus(conf.GetRetriableStatusCodes()...),
+			route.RouteActionRetryMethods(methodStrings(conf.GetRetriableMethods())...),
+			route.RouteActionRetryTimeout(conf.GetPerTryTimeout().AsDuration()),
+			route.RouteActionRetryCount(conf.GetNumRetries().GetValue()),
+			route.RouteActionRetryBackoff(
+				conf.GetBackOff().GetBaseInterval().AsDuration(),
+				conf.GetBackOff().GetMaxInterval().AsDuration()),
+		)
+	case core_mesh.ProtocolGRPC:
+		conf := retry.Spec.GetConf().GetGrpc()
+		configurers = append(configurers,
+			route.RouteActionRetryOnConditions(grpcConditionStrings(conf.GetRetryOn())...),
+			route.RouteActionRetryTimeout(conf.GetPerTryTimeout().AsDuration()),
+			route.RouteActionRetryCount(conf.GetNumRetries().GetValue()),
+			route.RouteActionRetryBackoff(
+				conf.GetBackOff().GetBaseInterval().AsDuration(),
+				conf.GetBackOff().GetMaxInterval().AsDuration()),
+		)
+	}
+
+	return configurers
 }

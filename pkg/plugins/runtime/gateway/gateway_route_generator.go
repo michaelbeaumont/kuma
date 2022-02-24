@@ -6,17 +6,16 @@ import (
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	"github.com/kumahq/kuma/pkg/core/resources/model"
-	core_xds "github.com/kumahq/kuma/pkg/core/xds"
 	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/match"
 	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/route"
 	xds_context "github.com/kumahq/kuma/pkg/xds/context"
 )
 
-func filterGatewayRoutes(in []model.Resource, accept func(resource *core_mesh.GatewayRouteResource) bool) []*core_mesh.GatewayRouteResource {
-	routes := make([]*core_mesh.GatewayRouteResource, 0, len(in))
+func filterGatewayRoutes(in []model.Resource, accept func(resource *core_mesh.MeshGatewayRouteResource) bool) []*core_mesh.MeshGatewayRouteResource {
+	routes := make([]*core_mesh.MeshGatewayRouteResource, 0, len(in))
 
 	for _, r := range in {
-		if trafficRoute, ok := r.(*core_mesh.GatewayRouteResource); ok {
+		if trafficRoute, ok := r.(*core_mesh.MeshGatewayRouteResource); ok {
 			if accept(trafficRoute) {
 				routes = append(routes, trafficRoute)
 			}
@@ -26,18 +25,10 @@ func filterGatewayRoutes(in []model.Resource, accept func(resource *core_mesh.Ga
 	return routes
 }
 
-// GatewayRouteGenerator generates Kuma gateway routes from GatewayRoute resources.
-type GatewayRouteGenerator struct {
-}
-
-func (*GatewayRouteGenerator) SupportsProtocol(p mesh_proto.Gateway_Listener_Protocol) bool {
-	return p == mesh_proto.Gateway_Listener_HTTP || p == mesh_proto.Gateway_Listener_HTTPS
-}
-
-func (g *GatewayRouteGenerator) GenerateHost(ctx xds_context.Context, info *GatewayResourceInfo) (*core_xds.ResourceSet, error) {
-	gatewayRoutes := filterGatewayRoutes(info.Host.Routes, func(route *core_mesh.GatewayRouteResource) bool {
+func GenerateEnvoyRouteEntries(ctx xds_context.Context, info GatewayListenerInfo, host GatewayHost) []route.Entry {
+	gatewayRoutes := filterGatewayRoutes(host.Routes, func(route *core_mesh.MeshGatewayRouteResource) bool {
 		// Wildcard virtual host accepts all routes.
-		if info.Host.Hostname == WildcardHostname {
+		if host.Hostname == WildcardHostname {
 			return true
 		}
 
@@ -48,11 +39,11 @@ func (g *GatewayRouteGenerator) GenerateHost(ctx xds_context.Context, info *Gate
 		}
 
 		// Otherwise, match the virtualhost name to the route names.
-		return match.Hostnames(info.Host.Hostname, names...)
+		return match.Hostnames(host.Hostname, names...)
 	})
 
 	if len(gatewayRoutes) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	log.V(1).Info("applying merged traffic routes",
@@ -60,8 +51,12 @@ func (g *GatewayRouteGenerator) GenerateHost(ctx xds_context.Context, info *Gate
 		"listener-name", info.Listener.ResourceName,
 	)
 
-	exactEntries := map[string]route.Entry{}
-	prefixEntries := map[string]route.Entry{}
+	var entries []route.Entry
+
+	// Index the routes by their path. There are typically multiple
+	// routes per path with additional matching criteria.
+	exactEntries := map[string][]route.Entry{}
+	prefixEntries := map[string][]route.Entry{}
 
 	for _, route := range gatewayRoutes {
 		for _, rule := range route.Spec.GetConf().GetHttp().GetRules() {
@@ -77,11 +72,13 @@ func (g *GatewayRouteGenerator) GenerateHost(ctx xds_context.Context, info *Gate
 
 				switch {
 				case routeEntry.Match.ExactPath != "":
-					exactEntries[routeEntry.Match.ExactPath] = routeEntry
+					exactEntries[routeEntry.Match.ExactPath] =
+						append(exactEntries[routeEntry.Match.ExactPath], routeEntry)
 				case routeEntry.Match.PrefixPath != "":
-					prefixEntries[routeEntry.Match.PrefixPath] = routeEntry
+					prefixEntries[routeEntry.Match.PrefixPath] =
+						append(prefixEntries[routeEntry.Match.PrefixPath], routeEntry)
 				default:
-					info.RouteTable.Entries = append(info.RouteTable.Entries, routeEntry)
+					entries = append(entries, routeEntry)
 				}
 			}
 		}
@@ -93,38 +90,42 @@ func (g *GatewayRouteGenerator) GenerateHost(ctx xds_context.Context, info *Gate
 	// transformations. Unless there is already an exact match for the
 	// path in question, we expand each prefix path to both a prefix and
 	// an exact path, duplicating the route.
-	for _, prefixEntry := range prefixEntries {
-		exact := strings.TrimRight(prefixEntry.Match.PrefixPath, "/")
+	for path, pathEntries := range prefixEntries {
+		exactPath := strings.TrimRight(path, "/")
 
-		// Make sure the prefix has a trailing '/' so that it only matches
-		// complete path components.
-		prefixEntry.Match.PrefixPath = exact + "/"
-		info.RouteTable.Entries = append(info.RouteTable.Entries, prefixEntry)
+		_, hasExactMatch := exactEntries[exactPath]
 
-		// If the prefix is '/', it matches everything anyway,
-		// so we don't need to install an exact match.
-		if prefixEntry.Match.PrefixPath == "/" {
-			continue
-		}
+		for _, e := range pathEntries {
+			// Make sure the prefix has a trailing '/' so that it only matches
+			// complete path components.
+			e.Match.PrefixPath = exactPath + "/"
+			entries = append(entries, e)
 
-		// Duplicate the route to an exact match only if there
-		// isn't already an exact match for this path.
-		if _, ok := exactEntries[exact]; !ok {
-			exactMatch := prefixEntry
-			exactMatch.Match.PrefixPath = ""
-			exactMatch.Match.ExactPath = exact
-			exactEntries[exact] = exactMatch
+			// If the prefix is '/', it matches everything anyway,
+			// so we don't need to install an exact match.
+			if e.Match.PrefixPath == "/" {
+				continue
+			}
+
+			// Duplicate the route to an exact match only if there
+			// isn't already an exact match for this path.
+			if !hasExactMatch {
+				exactMatch := e
+				exactMatch.Match.PrefixPath = ""
+				exactMatch.Match.ExactPath = exactPath
+				exactEntries[exactPath] = append(exactEntries[exactPath], exactMatch)
+			}
 		}
 	}
 
-	for _, e := range exactEntries {
-		info.RouteTable.Entries = append(info.RouteTable.Entries, e)
+	for _, pathEntries := range exactEntries {
+		entries = append(entries, pathEntries...)
 	}
 
-	return nil, nil
+	return PopulatePolicies(info, host, entries)
 }
 
-func makeRouteEntry(rule *mesh_proto.GatewayRoute_HttpRoute_Rule) route.Entry {
+func makeRouteEntry(rule *mesh_proto.MeshGatewayRoute_HttpRoute_Rule) route.Entry {
 	entry := route.Entry{}
 
 	for _, b := range rule.GetBackends() {
@@ -176,18 +177,23 @@ func makeRouteEntry(rule *mesh_proto.GatewayRoute_HttpRoute_Rule) route.Entry {
 	return entry
 }
 
-func makeRouteMatch(ruleMatch *mesh_proto.GatewayRoute_HttpRoute_Match) route.Match {
+func makeRouteMatch(ruleMatch *mesh_proto.MeshGatewayRoute_HttpRoute_Match) route.Match {
 	match := route.Match{}
 
 	if p := ruleMatch.GetPath(); p != nil {
 		switch p.GetMatch() {
-		case mesh_proto.GatewayRoute_HttpRoute_Match_Path_EXACT:
+		case mesh_proto.MeshGatewayRoute_HttpRoute_Match_Path_EXACT:
 			match.ExactPath = p.GetValue()
-		case mesh_proto.GatewayRoute_HttpRoute_Match_Path_PREFIX:
+		case mesh_proto.MeshGatewayRoute_HttpRoute_Match_Path_PREFIX:
 			match.PrefixPath = p.GetValue()
-		case mesh_proto.GatewayRoute_HttpRoute_Match_Path_REGEX:
+		case mesh_proto.MeshGatewayRoute_HttpRoute_Match_Path_REGEX:
 			match.RegexPath = p.GetValue()
 		}
+	} else {
+		// Envoy routes require a path match, so if the route
+		// didn't specify, we match any path so that the additional
+		// match criteria will be applied.
+		match.PrefixPath = "/"
 	}
 
 	if m := ruleMatch.GetMethod(); m != mesh_proto.HttpMethod_NONE {
@@ -208,10 +214,10 @@ func makeRouteMatch(ruleMatch *mesh_proto.GatewayRoute_HttpRoute_Match) route.Ma
 
 	for _, h := range ruleMatch.GetHeaders() {
 		switch h.GetMatch() {
-		case mesh_proto.GatewayRoute_HttpRoute_Match_Header_EXACT:
+		case mesh_proto.MeshGatewayRoute_HttpRoute_Match_Header_EXACT:
 			match.ExactHeader = append(
 				match.ExactHeader, route.Pair(h.GetName(), h.GetValue()))
-		case mesh_proto.GatewayRoute_HttpRoute_Match_Header_REGEX:
+		case mesh_proto.MeshGatewayRoute_HttpRoute_Match_Header_REGEX:
 			match.RegexHeader = append(
 				match.RegexHeader, route.Pair(h.GetName(), h.GetValue()))
 		}
@@ -219,10 +225,10 @@ func makeRouteMatch(ruleMatch *mesh_proto.GatewayRoute_HttpRoute_Match) route.Ma
 
 	for _, q := range ruleMatch.GetQueryParameters() {
 		switch q.GetMatch() {
-		case mesh_proto.GatewayRoute_HttpRoute_Match_Query_EXACT:
+		case mesh_proto.MeshGatewayRoute_HttpRoute_Match_Query_EXACT:
 			match.ExactQuery = append(
 				match.ExactQuery, route.Pair(q.GetName(), q.GetValue()))
-		case mesh_proto.GatewayRoute_HttpRoute_Match_Query_REGEX:
+		case mesh_proto.MeshGatewayRoute_HttpRoute_Match_Query_REGEX:
 			match.RegexQuery = append(
 				match.RegexQuery, route.Pair(q.GetName(), q.GetValue()))
 		}

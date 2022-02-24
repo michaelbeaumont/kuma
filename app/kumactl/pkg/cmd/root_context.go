@@ -30,20 +30,26 @@ import (
 type RootArgs struct {
 	ConfigFile string
 	Mesh       string
+	ApiTimeout time.Duration
 }
 
 type RootRuntime struct {
 	Config                       config_proto.Configuration
 	Now                          func() time.Time
 	AuthnPlugins                 map[string]plugins.AuthnPlugin
-	NewBaseAPIServerClient       func(*config_proto.ControlPlaneCoordinates_ApiServer) (util_http.Client, error)
+	NewBaseAPIServerClient       func(*config_proto.ControlPlaneCoordinates_ApiServer, time.Duration) (util_http.Client, error)
 	NewResourceStore             func(util_http.Client) core_store.ResourceStore
 	NewDataplaneOverviewClient   func(util_http.Client) kumactl_resources.DataplaneOverviewClient
+	NewDataplaneInspectClient    func(util_http.Client) kumactl_resources.DataplaneInspectClient
+	NewInspectEnvoyProxyClient   func(core_model.ResourceTypeDescriptor, util_http.Client) kumactl_resources.InspectEnvoyProxyClient
+	NewPolicyInspectClient       func(util_http.Client) kumactl_resources.PolicyInspectClient
 	NewZoneIngressOverviewClient func(util_http.Client) kumactl_resources.ZoneIngressOverviewClient
+	NewZoneEgressOverviewClient  func(util_http.Client) kumactl_resources.ZoneEgressOverviewClient
 	NewZoneOverviewClient        func(util_http.Client) kumactl_resources.ZoneOverviewClient
 	NewServiceOverviewClient     func(util_http.Client) kumactl_resources.ServiceOverviewClient
 	NewDataplaneTokenClient      func(util_http.Client) tokens.DataplaneTokenClient
 	NewZoneIngressTokenClient    func(util_http.Client) tokens.ZoneIngressTokenClient
+	NewZoneTokenClient           func(util_http.Client) tokens.ZoneTokenClient
 	NewAPIServerClient           func(util_http.Client) kumactl_resources.ApiServerClient
 	Registry                     registry.TypeRegistry
 }
@@ -85,11 +91,16 @@ func DefaultRootContext() *RootContext {
 				return kumactl_resources.NewResourceStore(client, registry.Global().ObjectDescriptors())
 			},
 			NewDataplaneOverviewClient:   kumactl_resources.NewDataplaneOverviewClient,
+			NewDataplaneInspectClient:    kumactl_resources.NewDataplaneInspectClient,
+			NewInspectEnvoyProxyClient:   kumactl_resources.NewInspectEnvoyProxyClient,
+			NewPolicyInspectClient:       kumactl_resources.NewPolicyInspectClient,
 			NewZoneIngressOverviewClient: kumactl_resources.NewZoneIngressOverviewClient,
+			NewZoneEgressOverviewClient:  kumactl_resources.NewZoneEgressOverviewClient,
 			NewZoneOverviewClient:        kumactl_resources.NewZoneOverviewClient,
 			NewServiceOverviewClient:     kumactl_resources.NewServiceOverviewClient,
 			NewDataplaneTokenClient:      tokens.NewDataplaneTokenClient,
 			NewZoneIngressTokenClient:    tokens.NewZoneIngressTokenClient,
+			NewZoneTokenClient:           tokens.NewZoneTokenClient,
 			NewAPIServerClient:           kumactl_resources.NewAPIServerClient,
 		},
 		InstallCpContext:                    install_context.DefaultInstallCpContext(),
@@ -155,7 +166,7 @@ func (rc *RootContext) BaseAPIServerClient() (util_http.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	client, err := rc.Runtime.NewBaseAPIServerClient(controlPlane.Coordinates.ApiServer)
+	client, err := rc.Runtime.NewBaseAPIServerClient(controlPlane.Coordinates.ApiServer, rc.Args.ApiTimeout)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create a client for Control Plane %q", controlPlane.Name)
 	}
@@ -190,6 +201,30 @@ func (rc *RootContext) CurrentDataplaneOverviewClient() (kumactl_resources.Datap
 	return rc.Runtime.NewDataplaneOverviewClient(client), nil
 }
 
+func (rc *RootContext) CurrentDataplaneInspectClient() (kumactl_resources.DataplaneInspectClient, error) {
+	client, err := rc.BaseAPIServerClient()
+	if err != nil {
+		return nil, err
+	}
+	return rc.Runtime.NewDataplaneInspectClient(client), nil
+}
+
+func (rc *RootContext) CurrentInspectEnvoyProxyClient(resDesc core_model.ResourceTypeDescriptor) (kumactl_resources.InspectEnvoyProxyClient, error) {
+	client, err := rc.BaseAPIServerClient()
+	if err != nil {
+		return nil, err
+	}
+	return rc.Runtime.NewInspectEnvoyProxyClient(resDesc, client), nil
+}
+
+func (rc *RootContext) CurrentPolicyInspectClient() (kumactl_resources.PolicyInspectClient, error) {
+	client, err := rc.BaseAPIServerClient()
+	if err != nil {
+		return nil, err
+	}
+	return rc.Runtime.NewPolicyInspectClient(client), nil
+}
+
 func (rc *RootContext) CurrentZoneOverviewClient() (kumactl_resources.ZoneOverviewClient, error) {
 	client, err := rc.BaseAPIServerClient()
 	if err != nil {
@@ -204,6 +239,14 @@ func (rc *RootContext) CurrentZoneIngressOverviewClient() (kumactl_resources.Zon
 		return nil, err
 	}
 	return rc.Runtime.NewZoneIngressOverviewClient(client), nil
+}
+
+func (rc *RootContext) CurrentZoneEgressOverviewClient() (kumactl_resources.ZoneEgressOverviewClient, error) {
+	client, err := rc.BaseAPIServerClient()
+	if err != nil {
+		return nil, err
+	}
+	return rc.Runtime.NewZoneEgressOverviewClient(client), nil
 }
 
 func (rc *RootContext) CurrentServiceOverviewClient() (kumactl_resources.ServiceOverviewClient, error) {
@@ -228,6 +271,14 @@ func (rc *RootContext) CurrentZoneIngressTokenClient() (tokens.ZoneIngressTokenC
 		return nil, err
 	}
 	return rc.Runtime.NewZoneIngressTokenClient(client), nil
+}
+
+func (rc *RootContext) CurrentZoneTokenClient() (tokens.ZoneTokenClient, error) {
+	client, err := rc.BaseAPIServerClient()
+	if err != nil {
+		return nil, err
+	}
+	return rc.Runtime.NewZoneTokenClient(client), nil
 }
 
 func (rc *RootContext) IsFirstTimeUsage() bool {

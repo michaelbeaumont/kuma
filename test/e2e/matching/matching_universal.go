@@ -3,7 +3,7 @@ package matching
 import (
 	"strings"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -12,7 +12,6 @@ import (
 
 func Universal() {
 	var universal Cluster
-	var optsUniversal = KumaUniversalDeployOpts
 
 	BeforeEach(func() {
 		clusters, err := NewUniversalClusters([]string{Kuma1}, Silent)
@@ -21,10 +20,8 @@ func Universal() {
 		universal = clusters.GetCluster(Kuma1)
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, optsUniversal...)).
+			Install(Kuma(core.Standalone)).
 			Setup(universal)
-		Expect(err).ToNot(HaveOccurred())
-		err = universal.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		demoClientToken1, err := universal.GetKuma().GenerateDpToken("default", "demo-client-1")
@@ -47,11 +44,11 @@ func Universal() {
 	})
 
 	E2EAfterEach(func() {
-		Expect(universal.DeleteKuma(optsUniversal...)).To(Succeed())
+		Expect(universal.DeleteKuma()).To(Succeed())
 		Expect(universal.DismissCluster()).To(Succeed())
 	})
 
-	It("should both fault injections with the same destination proxy", func() {
+	It("should both fault injections with the same destination proxy", FlakeAttempts(3), func() {
 		Expect(YamlUniversal(`
 type: FaultInjection
 mesh: default
@@ -90,7 +87,7 @@ conf:
 				return false
 			}
 			return strings.Contains(stdout, "HTTP/1.1 401 Unauthorized")
-		}, "10s", "100ms").Should(BeTrue())
+		}, "60s", "1s").Should(BeTrue())
 
 		Eventually(func() bool {
 			stdout, _, err := universal.Exec("", "", "demo-client-2", "curl", "-v", "test-server.mesh")
@@ -98,6 +95,6 @@ conf:
 				return false
 			}
 			return strings.Contains(stdout, "HTTP/1.1 402 Payment Required")
-		}, "10s", "100ms").Should(BeTrue())
+		}, "60s", "1s").Should(BeTrue())
 	})
 }

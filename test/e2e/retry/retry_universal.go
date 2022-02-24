@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/gruntwork-io/terratest/modules/retry"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 
@@ -26,11 +26,8 @@ func RetryOnUniversal() {
 		cluster = clusters.GetCluster(Kuma3)
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, KumaUniversalDeployOpts...)).
+			Install(Kuma(core.Standalone)).
 			Setup(cluster)
-		Expect(err).ToNot(HaveOccurred())
-
-		err = cluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		demoClientToken, err := cluster.GetKuma().GenerateDpToken("default", "demo-client")
@@ -53,7 +50,7 @@ func RetryOnUniversal() {
 		if ShouldSkipCleanup() {
 			return
 		}
-		err := cluster.DeleteKuma(KumaUniversalDeployOpts...)
+		err := cluster.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		err = cluster.DismissCluster()

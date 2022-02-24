@@ -2,13 +2,12 @@ package tracker
 
 import (
 	"context"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"time"
 
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	dp_server "github.com/kumahq/kuma/pkg/config/dp-server"
@@ -54,7 +53,7 @@ var _ = Describe("HDS Snapshot generator", func() {
 			yml, err := util_proto.ToYAML(snapshot.GetResources(cache.HealthCheckSpecifierType)["hcs"])
 			Expect(err).ToNot(HaveOccurred())
 
-			golden, err := ioutil.ReadFile(filepath.Join("testdata", given.goldenFile))
+			golden, err := os.ReadFile(filepath.Join("testdata", given.goldenFile))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(golden).To(MatchYAML(yml))
 		},

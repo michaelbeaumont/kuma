@@ -3,10 +3,10 @@ package api_server_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -43,7 +43,7 @@ var _ = Describe("Resource Endpoints", func() {
 			Expect(err).ToNot(HaveOccurred())
 		}()
 		waitForServer(&client)
-	}, 5)
+	})
 
 	AfterEach(func() {
 		close(stop)
@@ -59,7 +59,7 @@ var _ = Describe("Resource Endpoints", func() {
 
 			// then
 			Expect(response.StatusCode).To(Equal(200))
-			body, err := ioutil.ReadAll(response.Body)
+			body, err := io.ReadAll(response.Body)
 			Expect(err).ToNot(HaveOccurred())
 			json := `
 			{
@@ -103,7 +103,7 @@ var _ = Describe("Resource Endpoints", func() {
 				"creationTime": "2018-07-17T16:05:36.995Z",
 				"modificationTime": "2018-07-17T16:05:36.995Z"
 			}`
-			body, err := ioutil.ReadAll(response.Body)
+			body, err := io.ReadAll(response.Body)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(string(body)).To(Or(

@@ -1,7 +1,7 @@
 package resilience
 
 import (
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -11,7 +11,6 @@ import (
 
 func LeaderElectionPostgres() {
 	var standalone1, standalone2 Cluster
-	var standalone1Opts, standalone2Opts []KumaDeploymentOption
 
 	BeforeEach(func() {
 		clusters, err := NewUniversalClusters(
@@ -28,35 +27,27 @@ func LeaderElectionPostgres() {
 		postgresInstance := postgres.From(standalone1, Kuma1)
 
 		// Standalone 1
-		standalone1Opts = KumaUniversalDeployOpts
-		standalone1Opts = append(standalone1Opts, WithPostgres(postgresInstance.GetEnvVars()))
-
 		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, standalone1Opts...)).
+			Install(Kuma(core.Standalone, WithPostgres(postgresInstance.GetEnvVars()))).
 			Setup(standalone1)
 
 		Expect(err).ToNot(HaveOccurred())
-		Expect(standalone1.VerifyKuma()).To(Succeed())
 
 		// Standalone 2
-		standalone2Opts = KumaUniversalDeployOpts
-		standalone2Opts = append(standalone2Opts, WithPostgres(postgresInstance.GetEnvVars()))
-
 		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, standalone2Opts...)).
+			Install(Kuma(core.Standalone, WithPostgres(postgresInstance.GetEnvVars()))).
 			Setup(standalone2)
 
 		Expect(err).ToNot(HaveOccurred())
-		Expect(standalone2.VerifyKuma()).To(Succeed())
 	})
 
 	E2EAfterEach(func() {
-		err := standalone1.DeleteKuma(standalone1Opts...)
+		err := standalone1.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 		err = standalone1.DismissCluster()
 		Expect(err).ToNot(HaveOccurred())
 
-		err = standalone2.DeleteKuma(standalone2Opts...)
+		err = standalone2.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 		err = standalone2.DismissCluster()
 		Expect(err).ToNot(HaveOccurred())

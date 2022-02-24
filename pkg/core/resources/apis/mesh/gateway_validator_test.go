@@ -1,8 +1,7 @@
 package mesh_test
 
 import (
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 
 	. "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	"github.com/kumahq/kuma/pkg/core/resources/model"
@@ -11,7 +10,7 @@ import (
 )
 
 // GatewayGenerateor is a ResourceGenerator that creates GatewayResource objects.
-type GatewayGenerator func() *GatewayResource
+type GatewayGenerator func() *MeshGatewayResource
 
 func (g GatewayGenerator) New() model.Resource {
 	if g != nil {
@@ -23,9 +22,9 @@ func (g GatewayGenerator) New() model.Resource {
 
 var _ = Describe("Gateway", func() {
 	DescribeValidCases(
-		GatewayGenerator(NewGatewayResource),
+		GatewayGenerator(NewMeshGatewayResource),
 		Entry("HTTPS listener", `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:
@@ -41,16 +40,31 @@ conf:
     tags:
       name: https`,
 		),
+		Entry("HTTPS listener without tags", `
+type: MeshGateway
+name: gateway
+mesh: default
+selectors:
+  - match:
+      kuma.io/service: gateway
+tags:
+  product: edge
+conf:
+  listeners:
+  - hostname: www-1.example.com
+    port: 443
+    protocol: HTTP`,
+		),
 	)
 
 	DescribeErrorCases(
-		GatewayGenerator(NewGatewayResource),
+		GatewayGenerator(NewMeshGatewayResource),
 		ErrorCase("doesn't have any selectors",
 			validators.Violation{
 				Field:   `selectors`,
 				Message: `must have at least one element`,
 			}, `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:
@@ -71,7 +85,7 @@ conf:
 				Field:   `tags["kuma.io/service"]`,
 				Message: `tag name must not be "kuma.io/service"`,
 			}, `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:
@@ -93,7 +107,7 @@ conf:
 				Field:   "conf",
 				Message: "cannot be empty",
 			}, `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:
@@ -109,7 +123,7 @@ conf:
 				Field:   "conf.listeners[0].port",
 				Message: "port must be in the range [1, 65535]",
 			}, `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:
@@ -129,7 +143,7 @@ conf:
 				Field:   "conf.listeners[0].protocol",
 				Message: "cannot be empty",
 			}, `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:
@@ -149,7 +163,7 @@ conf:
 				Field:   "conf.listeners[0].tls.mode",
 				Message: "cannot be empty",
 			}, `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:
@@ -172,7 +186,7 @@ conf:
 				Field:   "conf.listeners[0].tls.certificates",
 				Message: "must be empty in TLS passthrough mode",
 			}, `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:
@@ -197,7 +211,7 @@ conf:
 				Field:   "conf.listeners[0].tls.certificates",
 				Message: "cannot be empty in TLS termination mode",
 			}, `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:
@@ -220,7 +234,7 @@ conf:
 				Field:   "conf.listeners[0].hostname",
 				Message: "invalid wildcard domain",
 			}, `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:
@@ -242,7 +256,7 @@ conf:
 				Field:   "conf.listeners[0].hostname",
 				Message: "invalid hostname",
 			}, `
-type: Gateway
+type: MeshGateway
 name: gateway
 mesh: default
 selectors:

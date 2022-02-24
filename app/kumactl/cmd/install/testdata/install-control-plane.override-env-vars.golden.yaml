@@ -33,623 +33,1179 @@ data:
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: circuitbreakers.kuma.io
 spec:
   group: kuma.io
   names:
     kind: CircuitBreaker
+    listKind: CircuitBreakerList
     plural: circuitbreakers
+    singular: circuitbreaker
   scope: Cluster
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: CircuitBreaker is the Schema for the circuitbreaker API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma CircuitBreaker resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  creationTimestamp: null
-  name: dataplanes.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: Dataplane
-    plural: dataplanes
-  scope: Namespaced
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: Dataplane is the Schema for the dataplanes API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: proxytemplates.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: ProxyTemplate
-    plural: proxytemplates
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: ProxyTemplate is the Schema for the proxytemplates API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: ratelimits.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: RateLimit
-    plural: ratelimits
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: RateLimit is the Schema for the ratelimits API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: retries.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: Retry
-    plural: retries
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: Retry is the Schema for the retries API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: serviceinsights.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: ServiceInsight
-    plural: serviceinsights
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: ServiceInsight is the Schema for the services insights API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: timeouts.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: Timeout
-    plural: timeouts
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: Timeout is the Schema for the timeout API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: trafficlogs.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: TrafficLog
-    plural: trafficlogs
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: TrafficLog is the Schema for the trafficlogs API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: trafficpermissions.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: TrafficPermission
-    plural: trafficpermissions
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: TrafficPermission is the Schema for the trafficpermissions API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: trafficroutes.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: TrafficRoute
-    plural: trafficroutes
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: TrafficRoute is the Schema for the trafficroutes API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: traffictraces.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: TrafficTrace
-    plural: traffictraces
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: TrafficTrace is the Schema for the traffictraces API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: virtualoutbounds.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: VirtualOutbound
-    plural: virtualoutbounds
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: VirtualOutbound is the Schema for the virtualoutbounds API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: dataplaneinsights.kuma.io
 spec:
   group: kuma.io
   names:
     kind: DataplaneInsight
+    listKind: DataplaneInsightList
     plural: dataplaneinsights
+    singular: dataplaneinsight
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: DataplaneInsight is the Schema for the dataplane insights API
-          properties:
-            mesh:
-              type: string
-            status:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          status:
+            description: Status is the status the Kuma resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
-  name: zoneingressinsights.kuma.io
+  name: retries.kuma.io
 spec:
   group: kuma.io
   names:
-    kind: ZoneIngressInsight
-    plural: zoneingressinsights
+    kind: Retry
+    listKind: RetryList
+    plural: retries
+    singular: retry
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma Retry resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: serviceinsights.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: ServiceInsight
+    listKind: ServiceInsightList
+    plural: serviceinsights
+    singular: serviceinsight
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma ServiceInsight resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: timeouts.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: Timeout
+    listKind: TimeoutList
+    plural: timeouts
+    singular: timeout
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma Timeout resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: trafficlogs.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: TrafficLog
+    listKind: TrafficLogList
+    plural: trafficlogs
+    singular: trafficlog
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma TrafficLog resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: trafficpermissions.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: TrafficPermission
+    listKind: TrafficPermissionList
+    plural: trafficpermissions
+    singular: trafficpermission
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma TrafficPermission resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: trafficroutes.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: TrafficRoute
+    listKind: TrafficRouteList
+    plural: trafficroutes
+    singular: trafficroute
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma TrafficRoute resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: traffictraces.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: TrafficTrace
+    listKind: TrafficTraceList
+    plural: traffictraces
+    singular: traffictrace
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma TrafficTrace resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: virtualoutbounds.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: VirtualOutbound
+    listKind: VirtualOutboundList
+    plural: virtualoutbounds
+    singular: virtualoutbound
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma VirtualOutbound resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: zoneegresses.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: ZoneEgress
+    listKind: ZoneEgressList
+    plural: zoneegresses
+    singular: zoneegress
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: ZoneIngressInsight is the Schema for the zone ingress insight API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma ZoneEgress resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
-  name: zoneinsights.kuma.io
+  name: zoneegressinsights.kuma.io
 spec:
   group: kuma.io
   names:
-    kind: ZoneInsight
-    plural: zoneinsights
-  scope: Cluster
+    kind: ZoneEgressInsight
+    listKind: ZoneEgressInsightList
+    plural: zoneegressinsights
+    singular: zoneegressinsight
+  scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: ZoneInsight is the Schema for the zone insight API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma ZoneEgressInsight resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
-  name: zones.kuma.io
+  name: dataplanes.kuma.io
 spec:
   group: kuma.io
   names:
-    kind: Zone
-    plural: zones
-  scope: Cluster
+    kind: Dataplane
+    listKind: DataplaneList
+    plural: dataplanes
+    singular: dataplane
+  scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: Zone is the Schema for the zone API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma Dataplane resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: zoneingresses.kuma.io
 spec:
   group: kuma.io
   names:
     kind: ZoneIngress
+    listKind: ZoneIngressList
     plural: zoneingresses
+    singular: zoneingress
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: ZoneIngress is the Schema for the zone ingress API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma ZoneIngress resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: zoneingressinsights.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: ZoneIngressInsight
+    listKind: ZoneIngressInsightList
+    plural: zoneingressinsights
+    singular: zoneingressinsight
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma ZoneIngressInsight
+              resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: zoneinsights.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: ZoneInsight
+    listKind: ZoneInsightList
+    plural: zoneinsights
+    singular: zoneinsight
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma ZoneInsight resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: zones.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: Zone
+    listKind: ZoneList
+    plural: zones
+    singular: zone
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma Zone resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: externalservices.kuma.io
 spec:
   group: kuma.io
   names:
     kind: ExternalService
+    listKind: ExternalServiceList
     plural: externalservices
+    singular: externalservice
   scope: Cluster
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma ExternalService resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: faultinjections.kuma.io
 spec:
   group: kuma.io
   names:
     kind: FaultInjection
+    listKind: FaultInjectionList
     plural: faultinjections
+    singular: faultinjection
   scope: Cluster
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: FaultInjection is the Schema for the faultinjections API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma FaultInjection resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  creationTimestamp: null
-  name: gatewayroutes.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: GatewayRoute
-    plural: gatewayroutes
-  scope: Namespaced
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: GatewayRoute is the Schema for the gatewayroutes API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  creationTimestamp: null
-  name: gateways.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: Gateway
-    plural: gateways
-  scope: Namespaced
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: Gateway is the Schema for the gateway API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: healthchecks.kuma.io
 spec:
   group: kuma.io
   names:
     kind: HealthCheck
+    listKind: HealthCheckList
     plural: healthchecks
+    singular: healthcheck
   scope: Cluster
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: HealthCheck is the Schema for the healthchecks API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma HealthCheck resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  creationTimestamp: null
-  name: meshinsights.kuma.io
-spec:
-  group: kuma.io
-  names:
-    kind: MeshInsight
-    plural: meshinsights
-  scope: Cluster
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: MeshInsight is the Schema for the meshes insights API
-          properties:
-            mesh:
-              type: string
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: meshes.kuma.io
 spec:
   group: kuma.io
   names:
     kind: Mesh
+    listKind: MeshList
     plural: meshes
+    singular: mesh
   scope: Cluster
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          description: Mesh is the Schema for the meshes API
-          properties:
-            spec:
-              x-kubernetes-preserve-unknown-fields: true
-              type: object
-          type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma Mesh resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: meshinsights.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: MeshInsight
+    listKind: MeshInsightList
+    plural: meshinsights
+    singular: meshinsight
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma MeshInsight resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: proxytemplates.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: ProxyTemplate
+    listKind: ProxyTemplateList
+    plural: proxytemplates
+    singular: proxytemplate
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma ProxyTemplate resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  name: ratelimits.kuma.io
+spec:
+  group: kuma.io
+  names:
+    kind: RateLimit
+    listKind: RateLimitList
+    plural: ratelimits
+    singular: ratelimit
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          mesh:
+            description: Mesh is the name of the Kuma mesh this resource belongs to.
+              It may be omitted for cluster-scoped resources.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification of the Kuma RateLimit resource.
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -670,6 +1226,7 @@ rules:
       - get
       - list
       - watch
+
   - apiGroups:
       - coordination.k8s.io
     resources:
@@ -695,6 +1252,7 @@ rules:
       - services
     verbs:
       - get
+      - delete
       - list
       - watch
       - create
@@ -717,6 +1275,8 @@ rules:
       - zoneinsights
       - zoneingresses
       - zoneingressinsights
+      - zoneegresses
+      - zoneegressinsights
       - meshinsights
       - serviceinsights
       - proxytemplates
@@ -735,19 +1295,7 @@ rules:
       - update
       - patch
       - delete
-  - apiGroups:
-      - kuma.io
-    resources:
-      - gateways
-      - gatewayroutes
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
+
   - apiGroups:
       - kuma.io
     resources:
@@ -906,13 +1454,25 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: bd9040893dba92c246c9f15b8e5c5fdbbccabfeb97201a967595c7c13f24356c
-        checksum/tls-secrets: 67e1c21135f2c9ac6e7c1c33a036bbabab1250b9be164c9d275eae816b69b805
+        checksum/config: f509d41973f6ed84a86f16e996b13068bffb3a90d10d7886a37e1c5fc225f760
+        checksum/tls-secrets: 78e5236addc11d7549493c1756f9ace9c6dc65d04880293bfd22b97f8173476b
       labels:
         app.kubernetes.io/name: kuma
         app.kubernetes.io/instance: kuma
         app: kuma-control-plane
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - kuma-control-plane
+              topologyKey: kubernetes.io/hostname
       serviceAccountName: kuma-control-plane
       nodeSelector:
         
@@ -953,6 +1513,8 @@ spec:
               value: "false"
             - name: KUMA_RUNTIME_KUBERNETES_INJECTOR_SIDECAR_CONTAINER_IMAGE
               value: "docker.io/kumahq/kuma-dp:0.0.1"
+            - name: KUMA_RUNTIME_KUBERNETES_SERVICE_ACCOUNT_NAME
+              value: "system:serviceaccount:kuma-system:kuma-control-plane"
             - name: KUMA_STORE_KUBERNETES_SYSTEM_NAMESPACE
               value: "kuma-system"
             - name: KUMA_STORE_TYPE
@@ -986,7 +1548,16 @@ spec:
               memory: 256Mi
           volumeMounts:
             - name: general-tls-cert
-              mountPath: /var/run/secrets/kuma.io/tls-cert
+              mountPath: /var/run/secrets/kuma.io/tls-cert/tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: general-tls-cert
+              mountPath: /var/run/secrets/kuma.io/tls-cert/tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: general-tls-cert
+              mountPath: /var/run/secrets/kuma.io/tls-cert/ca.crt
+              subPath: ca.crt
               readOnly: true
             - name: kuma-control-plane-config
               mountPath: /etc/kuma.io/kuma-control-plane
@@ -1050,9 +1621,11 @@ webhooks:
           - externalservices
           - faultinjections
           - healthchecks
-          - retries
+          - meshgateways
+          - meshgatewayroutes
           - proxytemplates
           - ratelimits
+          - retries
           - trafficlogs
           - trafficpermissions
           - trafficroutes
@@ -1061,9 +1634,53 @@ webhooks:
     
       
     sideEffects: None
+  - name: namespace-kuma-injector.kuma.io
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    namespaceSelector:
+      matchLabels:
+        kuma.io/sidecar-injection: enabled
+    clientConfig:
+      caBundle: XYZ
+      service:
+        namespace: kuma-system
+        name: kuma-control-plane
+        path: /inject-sidecar
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - pods
+    sideEffects: None
+  - name: pods-kuma-injector.kuma.io
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+    objectSelector:
+      matchLabels:
+        kuma.io/sidecar-injection: enabled
+    clientConfig:
+      caBundle: XYZ
+      service:
+        namespace: kuma-system
+        name: kuma-control-plane
+        path: /inject-sidecar
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - pods
+    sideEffects: None
   - name: kuma-injector.kuma.io
     admissionReviewVersions: ["v1"]
-    failurePolicy: Ignore
+    failurePolicy: Ignore 
     clientConfig:
       caBundle: XYZ
       service:
@@ -1114,11 +1731,14 @@ webhooks:
           - dataplanes
           - externalservices
           - faultinjections
+          - gatewayinstances
           - healthchecks
-          - retries
           - meshes
+          - meshgateways
+          - meshgatewayroutes
           - proxytemplates
           - ratelimits
+          - retries
           - trafficlogs
           - trafficpermissions
           - trafficroutes

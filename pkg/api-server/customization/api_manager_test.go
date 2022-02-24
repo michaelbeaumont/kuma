@@ -2,12 +2,12 @@ package customization_test
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/emicklei/go-restful"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/api-server/customization"
@@ -55,7 +55,7 @@ var _ = Describe("API Manager", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// then
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		Expect(err).ToNot(HaveOccurred())
 
 		// when

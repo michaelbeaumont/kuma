@@ -3,7 +3,7 @@ package config
 import (
 	"crypto/tls"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
 
@@ -14,16 +14,13 @@ import (
 	"github.com/kumahq/kuma/pkg/version"
 )
 
-// overridden by tests
-var DefaultApiServerTimeout = 5 * time.Second
-
-func ValidateCpCoordinates(cp *kumactl_config.ControlPlane) error {
+func ValidateCpCoordinates(cp *kumactl_config.ControlPlane, timeout time.Duration) error {
 	req, err := http.NewRequest("GET", cp.Coordinates.ApiServer.Url, nil)
 	if err != nil {
 		return errors.Wrap(err, "could not construct the request")
 	}
 	client := http.Client{
-		Timeout:   DefaultApiServerTimeout,
+		Timeout:   timeout,
 		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
 	}
 	for _, h := range cp.Coordinates.ApiServer.Headers {
@@ -37,7 +34,7 @@ func ValidateCpCoordinates(cp *kumactl_config.ControlPlane) error {
 	if resp.StatusCode != 200 {
 		return errors.New("Control Plane API Server is not responding")
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return errors.Wrap(err, "could not read body from the Control Plane API Server")
 	}

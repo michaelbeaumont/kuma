@@ -1,6 +1,8 @@
 package testserver
 
 import (
+	"strings"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -97,7 +99,7 @@ func (k *k8SDeployment) statefulSet() *appsv1.StatefulSet {
 }
 
 func (k *k8SDeployment) podSpec() corev1.PodTemplateSpec {
-	return corev1.PodTemplateSpec{
+	spec := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      map[string]string{"app": k.Name()},
 			Annotations: map[string]string{"kuma.io/mesh": k.opts.Mesh},
@@ -109,7 +111,7 @@ func (k *k8SDeployment) podSpec() corev1.PodTemplateSpec {
 					Name:            k.Name(),
 					ImagePullPolicy: "IfNotPresent",
 					ReadinessProbe: &corev1.Probe{
-						Handler: corev1.Handler{
+						ProbeHandler: corev1.ProbeHandler{
 							HTTPGet: &corev1.HTTPGetAction{
 								Path: `/probes?type=readiness`,
 								Port: intstr.FromInt(80),
@@ -119,7 +121,7 @@ func (k *k8SDeployment) podSpec() corev1.PodTemplateSpec {
 						PeriodSeconds:       3,
 					},
 					LivenessProbe: &corev1.Probe{
-						Handler: corev1.Handler{
+						ProbeHandler: corev1.ProbeHandler{
 							HTTPGet: &corev1.HTTPGetAction{
 								Path: `/probes?type=liveness`,
 								Port: intstr.FromInt(80),
@@ -128,7 +130,7 @@ func (k *k8SDeployment) podSpec() corev1.PodTemplateSpec {
 						InitialDelaySeconds: 3,
 						PeriodSeconds:       3,
 					},
-					Image: framework.GetUniversalImage(),
+					Image: framework.Config.GetUniversalImage(),
 					Ports: []corev1.ContainerPort{
 						{ContainerPort: 80},
 					},
@@ -144,6 +146,10 @@ func (k *k8SDeployment) podSpec() corev1.PodTemplateSpec {
 			},
 		},
 	}
+	if len(k.opts.ReachableServices) > 0 {
+		spec.ObjectMeta.Annotations["kuma.io/transparent-proxying-reachable-services"] = strings.Join(k.opts.ReachableServices, ",")
+	}
+	return spec
 }
 
 func meta(namespace string, name string) metav1.ObjectMeta {
@@ -164,12 +170,14 @@ func (k *k8SDeployment) Deploy(cluster framework.Cluster) error {
 	} else {
 		funcs = append(funcs, framework.YamlK8sObject(k.deployment()))
 	}
-	funcs = append(funcs,
-		framework.YamlK8sObject(k.service()),
-		framework.WaitService(k.opts.Namespace, k.Name()),
-		framework.WaitNumPods(1, k.Name()),
-		framework.WaitPodsAvailable(k.opts.Namespace, k.Name()),
-	)
+	funcs = append(funcs, framework.YamlK8sObject(k.service()))
+	if k.opts.WaitingToBeReady {
+		funcs = append(funcs,
+			framework.WaitService(k.opts.Namespace, k.Name()),
+			framework.WaitNumPods(k.opts.Namespace, 1, k.Name()),
+			framework.WaitPodsAvailable(k.opts.Namespace, k.Name()),
+		)
+	}
 	return framework.Combine(funcs...)(cluster)
 }
 

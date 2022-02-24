@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -28,42 +29,46 @@ type PodConverter struct {
 }
 
 func (p *PodConverter) PodToDataplane(
+	ctx context.Context,
 	dataplane *mesh_k8s.Dataplane,
 	pod *kube_core.Pod,
+	ns *kube_core.Namespace,
 	services []*kube_core.Service,
 	others []*mesh_k8s.Dataplane,
 ) error {
-	dataplane.Mesh = util_k8s.MeshFor(pod)
-	dataplaneProto, err := p.DataplaneFor(pod, services, others)
+	dataplane.Mesh = util_k8s.MeshOf(pod, ns)
+	dataplaneProto, err := p.dataplaneFor(ctx, pod, services, others)
 	if err != nil {
 		return err
 	}
-	spec, err := util_proto.ToMap(dataplaneProto)
-	if err != nil {
-		return err
-	}
-	dataplane.Spec = spec
+	dataplane.SetSpec(dataplaneProto)
 	return nil
 }
 
-func (p *PodConverter) PodToIngress(zoneIngress *mesh_k8s.ZoneIngress, pod *kube_core.Pod, services []*kube_core.Service) error {
+func (p *PodConverter) PodToIngress(ctx context.Context, zoneIngress *mesh_k8s.ZoneIngress, pod *kube_core.Pod, services []*kube_core.Service) error {
 	zoneIngressProto := &mesh_proto.ZoneIngress{}
-	if err := util_proto.FromMap(zoneIngress.Spec, zoneIngressProto); err != nil {
-		return err
-	}
 	// Pass the current dataplane so we won't override available services in Ingress section
-	if err := p.IngressFor(zoneIngressProto, pod, services); err != nil {
+	if err := p.IngressFor(ctx, zoneIngressProto, pod, services); err != nil {
 		return err
 	}
-	spec, err := util_proto.ToMap(zoneIngressProto)
-	if err != nil {
-		return err
-	}
-	zoneIngress.Spec = spec
+	zoneIngress.SetSpec(zoneIngressProto)
 	return nil
 }
 
-func (p *PodConverter) DataplaneFor(
+func (p *PodConverter) PodToEgress(zoneEgress *mesh_k8s.ZoneEgress, pod *kube_core.Pod, services []*kube_core.Service) error {
+	zoneEgressProto := &mesh_proto.ZoneEgress{}
+	// Pass the current dataplane, so we won't override available services in Egress section
+	if err := p.EgressFor(zoneEgressProto, pod, services); err != nil {
+		return err
+	}
+
+	zoneEgress.SetSpec(zoneEgressProto)
+
+	return nil
+}
+
+func (p *PodConverter) dataplaneFor(
+	ctx context.Context,
 	pod *kube_core.Pod,
 	services []*kube_core.Service,
 	others []*mesh_k8s.Dataplane,
@@ -77,6 +82,7 @@ func (p *PodConverter) DataplaneFor(
 	if err != nil {
 		return nil, err
 	}
+	var reachableServices []string
 	if exist && enabled {
 		inboundPort, exist, err := annotations.GetUint32(metadata.KumaTransparentProxyingInboundPortAnnotation)
 		if err != nil {
@@ -105,6 +111,10 @@ func (p *PodConverter) DataplaneFor(
 		if services, _ := annotations.GetString(metadata.KumaDirectAccess); services != "" {
 			dataplane.Networking.TransparentProxying.DirectAccessServices = strings.Split(services, ",")
 		}
+		if reachableServicesRaw, exist := annotations.GetString(metadata.KumaTransparentProxyingReachableServicesAnnotation); exist {
+			reachableServices = strings.Split(reachableServicesRaw, ",")
+			dataplane.Networking.TransparentProxying.ReachableServices = reachableServices
+		}
 	}
 
 	dataplane.Networking.Address = pod.Status.PodIP
@@ -127,7 +137,7 @@ func (p *PodConverter) DataplaneFor(
 		dataplane.Networking.Inbound = ifaces
 	}
 
-	ofaces, err := p.OutboundInterfacesFor(pod, others)
+	ofaces, err := p.OutboundInterfacesFor(ctx, pod, others, reachableServices)
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +154,14 @@ func (p *PodConverter) DataplaneFor(
 		return nil, err
 	}
 	dataplane.Probes = probes
+
+	adminPort, exist, err := annotations.GetUint32(metadata.KumaEnvoyAdminPort)
+	if err != nil {
+		return nil, err
+	}
+	if exist {
+		dataplane.Networking.Admin = &mesh_proto.EnvoyAdmin{Port: adminPort}
+	}
 
 	return dataplane, nil
 }

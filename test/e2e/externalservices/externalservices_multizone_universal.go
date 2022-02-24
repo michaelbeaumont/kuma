@@ -4,12 +4,12 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
-	. "github.com/kumahq/kuma/test/e2e/trafficroute/testutil"
 	. "github.com/kumahq/kuma/test/framework"
+	. "github.com/kumahq/kuma/test/framework/client"
 	"github.com/kumahq/kuma/test/framework/deployments/externalservice"
 )
 
@@ -49,7 +49,6 @@ networking:
 	const defaultMesh = "default"
 
 	var global, zone1, zone2, external Cluster
-	var optsGlobal, optsZone1, optsZone2 = KumaUniversalDeployOpts, KumaUniversalDeployOpts, KumaUniversalDeployOpts
 
 	BeforeEach(func() {
 		clusters, err := NewUniversalClusters(
@@ -75,11 +74,9 @@ networking:
 		// Global
 		global = clusters.GetCluster(Kuma6)
 		err = NewClusterSetup().
-			Install(Kuma(core.Global, optsGlobal...)).
+			Install(Kuma(core.Global)).
 			Install(YamlUniversal(fmt.Sprintf(meshDefaulMtlsOn, "false"))).
 			Setup(global)
-		Expect(err).ToNot(HaveOccurred())
-		err = global.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		globalCP := global.GetKuma()
@@ -89,43 +86,39 @@ networking:
 
 		// Cluster 1
 		zone1 = clusters.GetCluster(Kuma4)
-		optsZone1 = append(optsZone1,
-			WithGlobalAddress(globalCP.GetKDSServerAddress()),
-			WithHDS(false))
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone1...)).
+			Install(Kuma(core.Zone,
+				WithGlobalAddress(globalCP.GetKDSServerAddress()),
+				WithHDS(false),
+			)).
 			Install(DemoClientUniversal(AppModeDemoClient, defaultMesh, demoClientToken, WithTransparentProxy(true))).
 			Setup(zone1)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone1.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		// Cluster 2
 		zone2 = clusters.GetCluster(Kuma5)
-		optsZone2 = append(optsZone2,
-			WithGlobalAddress(globalCP.GetKDSServerAddress()),
-			WithHDS(false))
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone2...)).
+			Install(Kuma(core.Zone,
+				WithGlobalAddress(globalCP.GetKDSServerAddress()),
+				WithHDS(false),
+			)).
 			Install(DemoClientUniversal(AppModeDemoClient, defaultMesh, demoClientToken, WithTransparentProxy(true))).
 			Setup(zone2)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone2.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	E2EAfterEach(func() {
 		Expect(external.DismissCluster()).To(Succeed())
 
-		Expect(zone1.DeleteKuma(optsZone1...)).To(Succeed())
+		Expect(zone1.DeleteKuma()).To(Succeed())
 		Expect(zone1.DismissCluster()).To(Succeed())
 
-		Expect(zone2.DeleteKuma(optsZone2...)).To(Succeed())
+		Expect(zone2.DeleteKuma()).To(Succeed())
 		Expect(zone2.DismissCluster()).To(Succeed())
 
-		Expect(global.DeleteKuma(optsGlobal...)).To(Succeed())
+		Expect(global.DeleteKuma()).To(Succeed())
 		Expect(global.DismissCluster()).To(Succeed())
 	})
 

@@ -1,10 +1,10 @@
-package topology
+package topology_test
 
 import (
 	"context"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -15,6 +15,7 @@ import (
 	"github.com/kumahq/kuma/pkg/plugins/resources/memory"
 	test_model "github.com/kumahq/kuma/pkg/test/resources/model"
 	util_proto "github.com/kumahq/kuma/pkg/util/proto"
+	"github.com/kumahq/kuma/pkg/xds/topology"
 )
 
 var _ = Describe("Timeout", func() {
@@ -63,7 +64,7 @@ var _ = Describe("Timeout", func() {
 			err := rm.Create(ctx, timeoutsFrontendV1ToRedis, store.CreateBy(model.MetaToResourceKey(timeoutsFrontendV1ToRedis.GetMeta())))
 			Expect(err).ToNot(HaveOccurred())
 
-			timeoutMap, err := GetTimeouts(ctx, dataplane, rm)
+			timeoutMap, err := topology.GetTimeouts(ctx, dataplane, rm)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(timeoutMap).To(HaveLen(1))
 			Expect(timeoutMap).To(HaveKeyWithValue(
@@ -85,7 +86,7 @@ var _ = Describe("Timeout", func() {
 			err := rm.Create(ctx, timeoutsAllToAll, store.CreateBy(model.MetaToResourceKey(timeoutsAllToAll.GetMeta())))
 			Expect(err).ToNot(HaveOccurred())
 
-			timeoutMap, err := GetTimeouts(ctx, dataplane, rm)
+			timeoutMap, err := topology.GetTimeouts(ctx, dataplane, rm)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(timeoutMap).To(HaveLen(4))
 

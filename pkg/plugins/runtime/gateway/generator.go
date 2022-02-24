@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"fmt"
 	"sort"
 
@@ -9,13 +8,10 @@ import (
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
-	core_manager "github.com/kumahq/kuma/pkg/core/resources/manager"
 	"github.com/kumahq/kuma/pkg/core/resources/model"
-	"github.com/kumahq/kuma/pkg/core/resources/registry"
 	core_xds "github.com/kumahq/kuma/pkg/core/xds"
 	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/match"
 	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/merge"
-	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/route"
 	xds_context "github.com/kumahq/kuma/pkg/xds/context"
 	envoy_listeners "github.com/kumahq/kuma/pkg/xds/envoy/listeners"
 	envoy_names "github.com/kumahq/kuma/pkg/xds/envoy/names"
@@ -27,7 +23,7 @@ const WildcardHostname = "*"
 // RoutePolicyTypes specifies the resource types the gateway will bind
 // for routes.
 var RoutePolicyTypes = []model.ResourceType{
-	core_mesh.GatewayRouteType,
+	core_mesh.MeshGatewayRouteType,
 }
 
 // ConnectionPolicyTypes specifies the resource types the gateway will
@@ -45,51 +41,50 @@ type GatewayHost struct {
 	Hostname string
 	Routes   []model.Resource
 	Policies map[model.ResourceType][]match.RankedPolicy
-	TLS      *mesh_proto.Gateway_TLS_Conf
-}
-
-// Resources tracks partially-built xDS resources that can be updated
-// by multiple gateway generators.
-type Resources struct {
-	Listener           *envoy_listeners.ListenerBuilder
-	FilterChain        *envoy_listeners.FilterChainBuilder
-	RouteConfiguration *envoy_routes.RouteConfigurationBuilder
+	TLS      *mesh_proto.MeshGateway_TLS_Conf
 }
 
 type GatewayListener struct {
 	Port         uint32
-	Protocol     mesh_proto.Gateway_Listener_Protocol
+	Protocol     mesh_proto.MeshGateway_Listener_Protocol
 	ResourceName string
 }
 
-type GatewayResourceInfo struct {
+// GatewayListenerInfo holds everything needed to generate resources for a
+// listener.
+type GatewayListenerInfo struct {
 	Proxy            *core_xds.Proxy
 	Dataplane        *core_mesh.DataplaneResource
-	Gateway          *core_mesh.GatewayResource
+	Gateway          *core_mesh.MeshGatewayResource
 	ExternalServices *core_mesh.ExternalServiceResourceList
 
-	Listener   GatewayListener
-	Host       GatewayHost
-	Resources  Resources
-	RouteTable route.Table
+	Listener GatewayListener
 }
 
-// GatewayHostGenerator is responsible for generating xDS resources for a single GatewayHost.
-type GatewayHostGenerator interface {
-	GenerateHost(xds_context.Context, *GatewayResourceInfo) (*core_xds.ResourceSet, error)
-	SupportsProtocol(mesh_proto.Gateway_Listener_Protocol) bool
+// FilterChainGenerator is responsible for handling the filter chain for
+// a specific protocol.
+// A FilterChainGenerator can be host-specific or shared amongst hosts.
+type FilterChainGenerator interface {
+	Generate(xds_context.Context, GatewayListenerInfo, []GatewayHost) (*core_xds.ResourceSet, []*envoy_listeners.FilterChainBuilder, error)
 }
 
 // Generator generates xDS resources for an entire Gateway.
 type Generator struct {
-	ResourceManager core_manager.ReadOnlyResourceManager
-	Generators      []GatewayHostGenerator
+	FilterChainGenerators filterChainGenerators
+	ClusterGenerator      ClusterGenerator
+}
+
+type filterChainGenerators struct {
+	FilterChainGenerators map[mesh_proto.MeshGateway_Listener_Protocol]FilterChainGenerator
+}
+
+func (g *filterChainGenerators) For(ctx xds_context.Context, info GatewayListenerInfo) FilterChainGenerator {
+	gen := g.FilterChainGenerators[info.Listener.Protocol]
+	return gen
 }
 
 func (g Generator) Generate(ctx xds_context.Context, proxy *core_xds.Proxy) (*core_xds.ResourceSet, error) {
-	mesh := ctx.Mesh.Resource.Meta.GetName()
-	manager := match.ManagerForMesh(g.ResourceManager, mesh)
-	gateway := match.Gateway(manager, proxy.Dataplane)
+	gateway := match.Gateway(ctx.Mesh.Resources.Gateways(), proxy.Dataplane.Spec.Matches)
 
 	if gateway == nil {
 		log.V(1).Info("no matching gateway for dataplane",
@@ -117,18 +112,14 @@ func (g Generator) Generate(ctx xds_context.Context, proxy *core_xds.Proxy) (*co
 	// Multiple listener specifications can have the same port. If
 	// they are compatible, then we can collapse those specifications
 	// down to a single listener.
-	collapsed := map[uint32][]*mesh_proto.Gateway_Listener{}
+	collapsed := map[uint32][]*mesh_proto.MeshGateway_Listener{}
 	for _, ep := range gateway.Spec.GetConf().GetListeners() {
 		collapsed[ep.GetPort()] = append(collapsed[ep.GetPort()], ep)
 	}
 
-	resources := ResourceAggregator{core_xds.NewResourceSet()}
+	resources := core_xds.NewResourceSet()
 
-	// Cache external services since multiple listeners might need them.
-	externalServices, err := listResources(manager, core_mesh.ExternalServiceType)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to list ExternalServices")
-	}
+	externalServices := ctx.Mesh.Resources.ExternalServices()
 
 	for port, listeners := range collapsed {
 		// Force all listeners on the same port to have the same protocol.
@@ -141,7 +132,7 @@ func (g Generator) Generate(ctx xds_context.Context, proxy *core_xds.Proxy) (*co
 			}
 		}
 
-		listener, hosts, err := MakeGatewayListener(manager, gateway, listeners)
+		listener, hosts, err := MakeGatewayListener(ctx.Mesh, gateway, listeners)
 		if err != nil {
 			return nil, err
 		}
@@ -154,72 +145,101 @@ func (g Generator) Generate(ctx xds_context.Context, proxy *core_xds.Proxy) (*co
 			return hosts[i].Hostname > hosts[j].Hostname
 		})
 
-		info := GatewayResourceInfo{
+		info := GatewayListenerInfo{
 			Proxy:            proxy,
 			Dataplane:        proxy.Dataplane,
 			Gateway:          gateway,
-			ExternalServices: externalServices.(*core_mesh.ExternalServiceResourceList),
+			ExternalServices: externalServices,
 			Listener:         listener,
 		}
 
-		// Make a pass over the generators for each virtual host.
-		for _, host := range hosts {
-			info.RouteTable = route.Table{}
-			info.Host = host
-
-			// Ensure that generators don't get duplicate routes,
-			// which could happen after redistributing wildcards.
-			info.Host.Routes = merge.UniqueResources(info.Host.Routes)
-
-			for _, generator := range g.Generators {
-				if !generator.SupportsProtocol(listener.Protocol) {
-					continue
-				}
-
-				if err := resources.AddSet(generator.GenerateHost(ctx, &info)); err != nil {
-					return nil, errors.Wrapf(err, "%T failed to generate resources for dataplane %q",
-						generator, proxy.Id)
-				}
-			}
+		// This is checked by the gateway validator
+		if !SupportsProtocol(listener.Protocol) {
+			return nil, errors.New("no support for protocol")
 		}
 
-		info.Resources.Listener.Configure(envoy_listeners.FilterChain(info.Resources.FilterChain))
-
-		if err := resources.AddSet(BuildResourceSet(info.Resources.Listener)); err != nil {
-			return nil, errors.Wrapf(err, "failed to build listener resource")
+		ldsResources, err := g.generateLDS(ctx, info, hosts)
+		if err != nil {
+			return nil, err
 		}
+		resources.AddSet(ldsResources)
 
-		if err := resources.AddSet(BuildResourceSet(info.Resources.RouteConfiguration)); err != nil {
-			return nil, errors.Wrapf(err, "failed to build route configuration resource")
+		rdsResources, err := g.generateRDS(ctx, info, hosts)
+		if err != nil {
+			return nil, err
 		}
+		resources.AddSet(rdsResources)
 	}
 
-	return resources.Get(), nil
+	return resources, nil
 }
 
-func listResources(mgr core_manager.ReadOnlyResourceManager, t model.ResourceType) (model.ResourceList, error) {
-	list, err := registry.Global().NewList(t)
+func (g Generator) generateLDS(ctx xds_context.Context, info GatewayListenerInfo, hosts []GatewayHost) (*core_xds.ResourceSet, error) {
+	resources := core_xds.NewResourceSet()
+	listenerBuilder := GenerateListener(ctx, info)
+
+	res, filterChainBuilders, err := g.FilterChainGenerators.FilterChainGenerators[info.Listener.Protocol].Generate(ctx, info, hosts)
 	if err != nil {
 		return nil, err
 	}
+	resources.AddSet(res)
 
-	if err := mgr.List(context.Background(), list); err != nil {
-		return nil, err
+	for _, filterChainBuilder := range filterChainBuilders {
+		listenerBuilder.Configure(envoy_listeners.FilterChain(filterChainBuilder))
 	}
 
-	return list, nil
+	res, err = BuildResourceSet(listenerBuilder)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to build listener resource")
+	}
+	resources.AddSet(res)
+
+	return resources, nil
+}
+
+func (g Generator) generateRDS(ctx xds_context.Context, info GatewayListenerInfo, hosts []GatewayHost) (*core_xds.ResourceSet, error) {
+	resources := core_xds.NewResourceSet()
+	routeConfig := GenerateRouteConfig(ctx, info)
+
+	// Make a pass over the generators for each virtual host.
+	for _, host := range hosts {
+		// Ensure that generators don't get duplicate routes,
+		// which could happen after redistributing wildcards.
+		host.Routes = merge.UniqueResources(host.Routes)
+
+		entries := GenerateEnvoyRouteEntries(ctx, info, host)
+
+		clusterRes, err := g.ClusterGenerator.GenerateClusters(ctx, info, entries)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to generate clusters for dataplane %q", info.Proxy.Id)
+		}
+		resources.AddSet(clusterRes)
+
+		vh, err := GenerateVirtualHost(ctx, info, host, entries)
+		if err != nil {
+			return nil, err
+		}
+		routeConfig.Configure(envoy_routes.VirtualHost(vh))
+	}
+
+	res, err := BuildResourceSet(routeConfig)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to build route configuration resource")
+	}
+	resources.AddSet(res)
+
+	return resources, nil
 }
 
 // MakeGatewayListener converts a collapsed set of listener configurations
 // in to a single configuration with a matched set of route resources. The
 // given listeners must have a consistent protocol and port.
 func MakeGatewayListener(
-	manager *match.MeshedResourceManager,
-	gateway *core_mesh.GatewayResource,
-	listeners []*mesh_proto.Gateway_Listener,
+	meshContext xds_context.MeshContext,
+	gateway *core_mesh.MeshGatewayResource,
+	listeners []*mesh_proto.MeshGateway_Listener,
 ) (GatewayListener, []GatewayHost, error) {
 	hostsByName := map[string]GatewayHost{}
-	resourcesByType := map[model.ResourceType]model.ResourceList{}
 
 	listener := GatewayListener{
 		Port:     listeners[0].GetPort(),
@@ -229,24 +249,6 @@ func MakeGatewayListener(
 			listeners[0].GetProtocol().String(),
 			listeners[0].GetPort(),
 		),
-	}
-
-	for _, t := range RoutePolicyTypes {
-		list, err := listResources(manager, t)
-		if err != nil {
-			return listener, nil, err
-		}
-
-		resourcesByType[t] = list
-	}
-
-	for _, t := range ConnectionPolicyTypes {
-		list, err := listResources(manager, t)
-		if err != nil {
-			return listener, nil, err
-		}
-
-		resourcesByType[t] = list
 	}
 
 	// Hostnames must be unique to a listener to remove ambiguity
@@ -269,10 +271,10 @@ func MakeGatewayListener(
 		}
 
 		switch listener.Protocol {
-		case mesh_proto.Gateway_Listener_HTTP,
-			mesh_proto.Gateway_Listener_HTTPS:
+		case mesh_proto.MeshGateway_Listener_HTTP,
+			mesh_proto.MeshGateway_Listener_HTTPS:
 			host.Routes = append(host.Routes,
-				match.Routes(resourcesByType[core_mesh.GatewayRouteType], l.GetTags())...)
+				match.Routes(meshContext.Resources.GatewayRoutes(), l.GetTags())...)
 		default:
 			// TODO(jpeach) match other route types that are appropriate to the protocol.
 		}
@@ -280,7 +282,7 @@ func MakeGatewayListener(
 		for _, t := range ConnectionPolicyTypes {
 			matches := match.ConnectionPoliciesBySource(
 				l.GetTags(),
-				match.ToConnectionPolicies(resourcesByType[t]))
+				match.ToConnectionPolicies(meshContext.Resources[t]))
 			host.Policies[t] = matches
 		}
 
@@ -327,7 +329,7 @@ func RedistributeWildcardRoutes(
 	wildcardRoutes := wild.Routes
 	wild.Routes = nil // We are rebuilding this.
 	for _, r := range wildcardRoutes {
-		gw, ok := r.(*core_mesh.GatewayRouteResource)
+		gw, ok := r.(*core_mesh.MeshGatewayRouteResource)
 		if !ok {
 			continue
 		}
@@ -341,11 +343,21 @@ func RedistributeWildcardRoutes(
 		}
 
 		for _, n := range names {
+			host, ok := hostsByName[n]
+
+			// When generating a new implicit virtualhost,
+			// initialize it by shallow copying from the
+			// wildcard source.
+			if !ok {
+				host = wild
+				host.Routes = nil
+			}
+
 			// Note that if we already have a virtualhost for this
 			// name, and add the route to it, it might be a duplicate.
-			host := hostsByName[n]
-			host.Hostname = n
 			host.Routes = append(host.Routes, r)
+			host.Hostname = n
+
 			hostsByName[n] = host
 		}
 	}

@@ -3,7 +3,7 @@ package gateway_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path"
 	"testing"
 
@@ -11,17 +11,13 @@ import (
 	envoy_types "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	cache_v3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/golang/protobuf/proto"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	kuma_cp "github.com/kumahq/kuma/pkg/config/app/kuma-cp"
 	"github.com/kumahq/kuma/pkg/core"
-	"github.com/kumahq/kuma/pkg/core/faultinjections"
-	"github.com/kumahq/kuma/pkg/core/logs"
-	"github.com/kumahq/kuma/pkg/core/permissions"
 	"github.com/kumahq/kuma/pkg/core/plugins"
-	"github.com/kumahq/kuma/pkg/core/ratelimits"
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	"github.com/kumahq/kuma/pkg/core/resources/manager"
 	core_model "github.com/kumahq/kuma/pkg/core/resources/model"
@@ -30,6 +26,8 @@ import (
 	"github.com/kumahq/kuma/pkg/core/resources/store"
 	"github.com/kumahq/kuma/pkg/core/runtime"
 	core_xds "github.com/kumahq/kuma/pkg/core/xds"
+	"github.com/kumahq/kuma/pkg/dns/vips"
+	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway"
 	"github.com/kumahq/kuma/pkg/test"
 	test_runtime "github.com/kumahq/kuma/pkg/test/runtime"
 	util_proto "github.com/kumahq/kuma/pkg/util/proto"
@@ -37,6 +35,7 @@ import (
 	xds_context "github.com/kumahq/kuma/pkg/xds/context"
 	"github.com/kumahq/kuma/pkg/xds/envoy"
 	"github.com/kumahq/kuma/pkg/xds/secrets"
+	"github.com/kumahq/kuma/pkg/xds/server"
 	"github.com/kumahq/kuma/pkg/xds/sync"
 )
 
@@ -102,40 +101,13 @@ func (m mockMetadataTracker) Metadata(dpKey core_model.ResourceKey) *core_xds.Da
 
 func MakeGeneratorContext(rt runtime.Runtime, key core_model.ResourceKey) (*xds_context.Context, *core_xds.Proxy) {
 	b := sync.DataplaneProxyBuilder{
-		CachingResManager:    rt.ReadOnlyResourceManager(),
-		NonCachingResManager: rt.ResourceManager(),
-		LookupIP:             rt.LookupIP(),
-		DataSourceLoader:     rt.DataSourceLoader(),
-		MetadataTracker:      mockMetadataTracker{},
-		PermissionMatcher: permissions.TrafficPermissionsMatcher{
-			ResourceManager: rt.ReadOnlyResourceManager(),
-		},
-		LogsMatcher: logs.TrafficLogsMatcher{
-			ResourceManager: rt.ReadOnlyResourceManager(),
-		},
-		FaultInjectionMatcher: faultinjections.FaultInjectionMatcher{
-			ResourceManager: rt.ReadOnlyResourceManager(),
-		},
-		RateLimitMatcher: ratelimits.RateLimitMatcher{
-			ResourceManager: rt.ReadOnlyResourceManager(),
-		},
-		Zone:       rt.Config().Multizone.Zone.Name,
-		APIVersion: envoy.APIV3,
+		DataSourceLoader: rt.DataSourceLoader(),
+		MetadataTracker:  mockMetadataTracker{},
+		Zone:             rt.Config().Multizone.Zone.Name,
+		APIVersion:       envoy.APIV3,
 	}
 
-	mesh := core_mesh.NewMeshResource()
-	Expect(rt.ReadOnlyResourceManager().Get(context.TODO(), mesh, store.GetByKey(key.Mesh, core_model.NoMesh))).
-		To(Succeed())
-
-	dataplanes := core_mesh.DataplaneResourceList{}
-	Expect(rt.ResourceManager().List(context.TODO(), &dataplanes, store.ListByMesh(key.Mesh))).
-		To(Succeed())
-
-	cache, err := cla.NewCache(
-		rt.ReadOnlyResourceManager(),
-		rt.Config().Multizone.Zone.Name,
-		rt.Config().Store.Cache.ExpirationTime,
-		rt.LookupIP(), rt.Metrics())
+	cache, err := cla.NewCache(rt.Config().Store.Cache.ExpirationTime, rt.Metrics())
 	Expect(err).To(Succeed())
 
 	secrets, err := secrets.NewSecrets(
@@ -145,19 +117,27 @@ func MakeGeneratorContext(rt runtime.Runtime, key core_model.ResourceKey) (*xds_
 	)
 	Expect(err).To(Succeed())
 
-	control, err := xds_context.BuildControlPlaneContext(rt.Config(), cache, secrets)
+	control, err := xds_context.BuildControlPlaneContext(cache, secrets)
+	Expect(err).To(Succeed())
+
+	meshCtxBuilder := xds_context.NewMeshContextBuilder(
+		rt.ReadOnlyResourceManager(),
+		server.MeshResourceTypes(server.HashMeshExcludedResources),
+		rt.LookupIP(),
+		rt.Config().Multizone.Zone.Name,
+		vips.NewPersistence(rt.ReadOnlyResourceManager(), rt.ConfigManager()),
+		rt.Config().DNSServer.Domain,
+	)
+
+	meshCtx, err := meshCtxBuilder.Build(context.TODO(), key.Mesh)
 	Expect(err).To(Succeed())
 
 	ctx := xds_context.Context{
 		ControlPlane: control,
-		Mesh: xds_context.MeshContext{
-			Resource:   mesh,
-			Dataplanes: &dataplanes,
-		},
-		EnvoyAdminClient: nil,
+		Mesh:         meshCtx,
 	}
 
-	proxy, err := b.Build(key, &ctx)
+	proxy, err := b.Build(key, meshCtx)
 	Expect(err).To(Succeed())
 
 	return &ctx, proxy
@@ -185,7 +165,7 @@ func FetchNamedFixture(
 // StoreNamedFixture reads the given YAML file name from the testdata
 // directory, then stores it in the runtime resource manager.
 func StoreNamedFixture(rt runtime.Runtime, name string) error {
-	bytes, err := ioutil.ReadFile(path.Join("testdata", name))
+	bytes, err := os.ReadFile(path.Join("testdata", name))
 	if err != nil {
 		return err
 	}
@@ -223,17 +203,26 @@ func StoreFixture(mgr manager.ResourceManager, r core_model.Resource) error {
 // BuildRuntime returns a fabricated test Runtime instance with which
 // the gateway plugin is registered.
 func BuildRuntime() (runtime.Runtime, error) {
-	builder, err := test_runtime.BuilderFor(context.Background(), kuma_cp.DefaultConfig())
+	config := kuma_cp.DefaultConfig()
+	config.Experimental.MeshGateway = true
+	builder, err := test_runtime.BuilderFor(context.Background(), config)
 	if err != nil {
+		return nil, err
+	}
+
+	plugin, err := plugins.Plugins().BootstrapPlugin(gateway.PluginName)
+	if err != nil {
+		return nil, err
+	}
+	if err := plugin.BeforeBootstrap(builder, nil); err != nil {
+		return nil, err
+	}
+	if err := plugin.AfterBootstrap(builder, nil); err != nil {
 		return nil, err
 	}
 
 	rt, err := builder.Build()
 	if err != nil {
-		return nil, err
-	}
-
-	if err := plugins.Plugins().RuntimePlugins()["gateway"].Customize(rt); err != nil {
 		return nil, err
 	}
 
@@ -331,6 +320,6 @@ func (d *DataplaneGenerator) generate(
 var _ = BeforeSuite(func() {
 	// Ensure that the plugin is registered so that tests at least
 	// have a chance of working.
-	_, registered := plugins.Plugins().RuntimePlugins()["gateway"]
-	Expect(registered).To(BeTrue(), "gateway plugin is registered")
+	_, err := plugins.Plugins().BootstrapPlugin(gateway.PluginName)
+	Expect(err).ToNot(HaveOccurred(), "gateway plugin is registered")
 })

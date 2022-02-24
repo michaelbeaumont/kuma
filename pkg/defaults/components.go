@@ -16,12 +16,31 @@ import (
 	"github.com/kumahq/kuma/pkg/core/resources/store"
 	"github.com/kumahq/kuma/pkg/core/runtime"
 	"github.com/kumahq/kuma/pkg/core/runtime/component"
+	"github.com/kumahq/kuma/pkg/core/tokens"
+	"github.com/kumahq/kuma/pkg/tokens/builtin/zone"
+	"github.com/kumahq/kuma/pkg/tokens/builtin/zoneingress"
 )
 
 var log = core.Log.WithName("defaults")
 
 func Setup(runtime runtime.Runtime) error {
 	defaultsComponent := NewDefaultsComponent(runtime.Config().Defaults, runtime.Config().Mode, runtime.Config().Environment, runtime.ResourceManager(), runtime.ResourceStore())
+
+	zoneIngressSigningKeyManager := tokens.NewSigningKeyManager(runtime.ResourceManager(), zoneingress.ZoneIngressSigningKeyPrefix)
+	if err := runtime.Add(tokens.NewDefaultSigningKeyComponent(
+		zoneIngressSigningKeyManager,
+		log.WithValues("secretPrefix", zoneingress.ZoneIngressSigningKeyPrefix))); err != nil {
+		return err
+	}
+
+	zoneSigningKeyManager := tokens.NewSigningKeyManager(runtime.ResourceManager(), zone.SigningKeyPrefix)
+	if err := runtime.Add(tokens.NewDefaultSigningKeyComponent(
+		zoneSigningKeyManager,
+		log.WithValues("secretPrefix", zoneingress.ZoneIngressSigningKeyPrefix),
+	)); err != nil {
+		return err
+	}
+
 	return runtime.Add(defaultsComponent)
 }
 
@@ -63,23 +82,17 @@ func (d *defaultsComponent) Start(stop <-chan struct{}) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := doWithRetry(ctx, d.createMeshIfNotExist); err != nil {
+			// if after this time we cannot create a resource - something is wrong and we should return an error which will restart CP.
+			err := retry.Do(ctx, retry.WithMaxDuration(10*time.Minute, retry.NewConstant(5*time.Second)), func(ctx context.Context) error {
+				return retry.RetryableError(d.createMeshIfNotExist(ctx)) // retry all errors
+			})
+			if err != nil {
 				// Retry this operation since on Kubernetes Mesh needs to be validated and set default values.
 				// This code can execute before the control plane is ready therefore hooks can fail.
 				errChan <- errors.Wrap(err, "could not create the default Mesh")
 			}
 		}()
 	}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := doWithRetry(ctx, d.createZoneIngressSigningKeyIfNotExist); err != nil {
-			// Retry this operation since on Kubernetes Mesh needs to be validated and set default values.
-			// This code can execute before the control plane is ready therefore hooks can fail.
-			errChan <- errors.Wrap(err, "could not create the default Control Plane Token's Signing Key")
-		}
-	}()
 
 	done := make(chan struct{})
 	go func() {
@@ -99,12 +112,4 @@ func (d *defaultsComponent) Start(stop <-chan struct{}) error {
 			return errs
 		}
 	}
-}
-
-func doWithRetry(ctx context.Context, fn func(context.Context) error) error {
-	backoff, _ := retry.NewConstant(5 * time.Second)
-	backoff = retry.WithMaxDuration(10*time.Minute, backoff) // if after this time we cannot create a resource - something is wrong and we should return an error which will restart CP.
-	return retry.Do(ctx, backoff, func(ctx context.Context) error {
-		return retry.RetryableError(fn(ctx)) // retry all errors
-	})
 }

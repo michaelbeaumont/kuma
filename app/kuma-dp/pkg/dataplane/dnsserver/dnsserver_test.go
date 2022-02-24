@@ -6,14 +6,13 @@ package dnsserver
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	kuma_dp "github.com/kumahq/kuma/pkg/config/app/kuma-dp"
@@ -26,7 +25,7 @@ var _ = Describe("DNS Server", func() {
 
 	BeforeEach(func() {
 		var err error
-		configDir, err = ioutil.TempDir("", "")
+		configDir, err = os.MkdirTemp("", "")
 		Expect(err).ToNot(HaveOccurred())
 	})
 	AfterEach(func() {
@@ -116,7 +115,7 @@ var _ = Describe("DNS Server", func() {
 
 			By("verifying the contents DNS Server config file")
 			// when
-			actual, err := ioutil.ReadFile(expectedConfigFile)
+			actual, err := os.ReadFile(expectedConfigFile)
 			// then
 			Expect(err).ToNot(HaveOccurred())
 			// and
@@ -178,7 +177,7 @@ var _ = Describe("DNS Server", func() {
 			cfg := kuma_dp.Config{
 				DNS: kuma_dp.DNS{
 					Enabled:           true,
-					CoreDNSBinaryPath: filepath.Join("testdata"),
+					CoreDNSBinaryPath: "testdata",
 					ConfigDir:         configDir,
 				},
 			}

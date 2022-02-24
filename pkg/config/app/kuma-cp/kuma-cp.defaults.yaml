@@ -75,7 +75,7 @@ bootstrapServer:
     # Address of Envoy Admin
     adminAddress: 127.0.0.1 # ENV: KUMA_BOOTSTRAP_SERVER_PARAMS_ADMIN_ADDRESS
     # Port of Envoy Admin
-    adminPort: 0 # ENV: KUMA_BOOTSTRAP_SERVER_PARAMS_ADMIN_PORT
+    adminPort: 9901 # ENV: KUMA_BOOTSTRAP_SERVER_PARAMS_ADMIN_PORT
     # Path to access log file of Envoy Admin
     adminAccessLogPath: /dev/null # ENV: KUMA_BOOTSTRAP_SERVER_PARAMS_ADMIN_ACCESS_LOG_PATH
     # Host of XDS Server. By default it is the same host as the one used by kuma-dp to connect to the control plane
@@ -153,7 +153,9 @@ runtime:
   # Kubernetes-specific configuration
   kubernetes:
     # Service name of the Kuma Control Plane. It is used to point Kuma DP to proper URL.
-    controlPlaneServiceName: kuma-control-plane
+    controlPlaneServiceName: kuma-control-plane # ENV: KUMA_RUNTIME_KUBERNETES_CONTROL_PLANE_SERVICE_NAME
+    # Name of Service Account that is used to run the Control Plane
+    serviceAccountName: "system:serviceaccount:kuma-system:kuma-control-plane" # ENV: KUMA_RUNTIME_KUBERNETES_SERVICE_ACCOUNT_NAME
     # Admission WebHook Server configuration
     admissionServer:
       # Address the Admission WebHook Server should be listening on
@@ -196,8 +198,6 @@ runtime:
         uid: 5678 # ENV: KUMA_RUNTIME_KUBERNETES_INJECTOR_SIDECAR_CONTAINER_UID
         # Group ID.
         gid: 5678 # ENV: KUMA_RUNTIME_KUBERNETES_INJECTOR_SIDECAR_CONTAINER_GUI
-        # Admin port.
-        adminPort: 9901 # ENV: KUMA_RUNTIME_KUBERNETES_INJECTOR_SIDECAR_CONTAINER_ADMIN_PORT
         # Drain time for listeners.
         drainTime: 30s # ENV: KUMA_RUNTIME_KUBERNETES_INJECTOR_SIDECAR_CONTAINER_DRAIN_TIME
         # Readiness probe.
@@ -411,9 +411,25 @@ access:
       users: ["mesh-system:admin"] # ENV: KUMA_ACCESS_STATIC_GENERATE_DP_TOKEN_USERS
       # List of groups that are allowed to generate dataplane token
       groups: ["mesh-system:admin"] # ENV: KUMA_ACCESS_STATIC_GENERATE_DP_TOKEN_GROUPS
-    # GenerateDPToken defines an access to generating user token
+    # GenerateUserToken defines an access to generating user token
     generateUserToken:
       # List of users that are allowed to generate user token
       users: ["mesh-system:admin"] # ENV: KUMA_ACCESS_STATIC_GENERATE_USER_TOKEN_USERS
       # List of groups that are allowed to generate user token
       groups: ["mesh-system:admin"] # ENV: KUMA_ACCESS_STATIC_GENERATE_USER_TOKEN_GROUPS
+    # GenerateZoneToken defines an access to generating zone token
+    generateZoneToken:
+      # List of users that are allowed to generate zone token
+      users: ["mesh-system:admin"] # ENV: KUMA_ACCESS_STATIC_GENERATE_ZONE_TOKEN_USERS
+      # List of groups that are allowed to generate zone token
+      groups: ["mesh-system:admin"] # ENV: KUMA_ACCESS_STATIC_GENERATE_ZONE_TOKEN_GROUPS
+    viewConfigDump:
+      # List of users that are allowed to get envoy config dump
+      users: [ ] # ENV: KUMA_ACCESS_STATIC_GET_CONFIG_DUMP_USERS
+      # List of groups that are allowed to get envoy config dump
+      groups: ["mesh-system:unauthenticated","mesh-system:authenticated"] # ENV: KUMA_ACCESS_STATIC_GET_CONFIG_DUMP_GROUPS
+
+# Configuration of experimental features of Kuma
+experimental:
+  # If true, experimental built-in gateway is enabled
+  meshGateway: false # ENV: KUMA_EXPERIMENTAL_MESHGATEWAY

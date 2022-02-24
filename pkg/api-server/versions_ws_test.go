@@ -2,11 +2,11 @@ package api_server_test
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"path"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	config "github.com/kumahq/kuma/pkg/config/api-server"
@@ -39,7 +39,7 @@ var _ = Describe("Versions WS", func() {
 		}, "3s").ShouldNot(HaveOccurred())
 
 		// then
-		bytes, err := ioutil.ReadAll(resp.Body)
+		bytes, err := io.ReadAll(resp.Body)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(bytes).To(matchers.MatchGoldenJSON(path.Join("testdata", "versions.json")))
 	})

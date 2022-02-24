@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	kube_core "k8s.io/api/core/v1"
 	kube_meta "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,7 +52,7 @@ var _ = BeforeSuite(test.Within(time.Minute, func() {
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("native", "test", "config", "crd", "bases"),
-			filepath.Join("native", "config", "crd", "bases"),
+			filepath.Join("..", "..", "..", "..", test.CustomResourceDir),
 		},
 	}
 

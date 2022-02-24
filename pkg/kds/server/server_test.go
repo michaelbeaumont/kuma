@@ -8,7 +8,7 @@ import (
 	envoy_core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_sd "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/golang/protobuf/proto"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
@@ -18,6 +18,7 @@ import (
 	"github.com/kumahq/kuma/pkg/core/resources/store"
 	"github.com/kumahq/kuma/pkg/kds/reconcile"
 	"github.com/kumahq/kuma/pkg/plugins/resources/memory"
+	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/register"
 	kds_samples "github.com/kumahq/kuma/pkg/test/kds/samples"
 	kds_setup "github.com/kumahq/kuma/pkg/test/kds/setup"
 	kds_verifier "github.com/kumahq/kuma/pkg/test/kds/verifier"
@@ -43,7 +44,7 @@ var _ = Describe("KDS Server", func() {
 
 		wg := &sync.WaitGroup{}
 		wg.Add(1)
-		stream := kds_setup.StartServer(s, wg, "test-cluster", registry.Global().ObjectTypes(model.HasKdsEnabled()), reconcile.Any)
+		stream := kds_setup.StartServer(s, wg, "test-cluster", registry.Global().ObjectTypes(model.HasKdsEnabled()), reconcile.Any, reconcile.NoopResourceMapper)
 
 		tc = &kds_verifier.TestContextImpl{
 			ResourceStore:      s,
@@ -56,18 +57,19 @@ var _ = Describe("KDS Server", func() {
 
 	It("should support all existing resource types", func() {
 		ctx := context.Background()
+		register.RegisterGatewayTypes()
 
-		// Do not forget to update this test after updating 'kds.SupportedTypes
+		// Do not forget to update this test after updating protobuf `KumaKdsOptions`.
 		Expect(registry.Global().ObjectTypes(model.HasKdsEnabled())).
 			To(HaveLen(len([]proto.Message{
 				kds_samples.CircuitBreaker,
+				kds_samples.Dataplane,
 				kds_samples.DataplaneInsight,
 				kds_samples.ServiceInsight,
 				kds_samples.ExternalService,
 				kds_samples.FaultInjection,
 				kds_samples.GlobalSecret,
 				kds_samples.HealthCheck,
-				kds_samples.Ingress, // mesh.DataplaneType
 				kds_samples.Mesh1,
 				kds_samples.ProxyTemplate,
 				kds_samples.RateLimit,
@@ -80,8 +82,12 @@ var _ = Describe("KDS Server", func() {
 				kds_samples.TrafficTrace,
 				kds_samples.ZoneIngress,
 				kds_samples.ZoneIngressInsight,
+				kds_samples.ZoneEgress,
+				kds_samples.ZoneEgressInsight,
 				kds_samples.Config,
 				kds_samples.VirtualOutbound,
+				kds_samples.Gateway,
+				kds_samples.GatewayRoute,
 			})))
 
 		vrf := kds_verifier.New().
@@ -93,7 +99,7 @@ var _ = Describe("KDS Server", func() {
 
 			Exec(kds_verifier.Create(ctx, &mesh.CircuitBreakerResource{Spec: kds_samples.CircuitBreaker}, store.CreateByKey("cb-1", "mesh-1"))).
 			Exec(kds_verifier.Create(ctx, &mesh.DataplaneInsightResource{Spec: kds_samples.DataplaneInsight}, store.CreateByKey("insight-1", "mesh-1"))).
-			Exec(kds_verifier.Create(ctx, &mesh.DataplaneResource{Spec: kds_samples.Ingress}, store.CreateByKey("Ingress-1", "mesh-1"))).
+			Exec(kds_verifier.Create(ctx, &mesh.DataplaneResource{Spec: kds_samples.Dataplane}, store.CreateByKey("dp-1", "mesh-1"))).
 			Exec(kds_verifier.Create(ctx, &mesh.ExternalServiceResource{Spec: kds_samples.ExternalService}, store.CreateByKey("es-1", "mesh-1"))).
 			Exec(kds_verifier.Create(ctx, &mesh.FaultInjectionResource{Spec: kds_samples.FaultInjection}, store.CreateByKey("fi-1", "mesh-1"))).
 			Exec(kds_verifier.Create(ctx, &mesh.HealthCheckResource{Spec: kds_samples.HealthCheck}, store.CreateByKey("hc-1", "mesh-1"))).
@@ -115,7 +121,7 @@ var _ = Describe("KDS Server", func() {
 			Exec(kds_verifier.DiscoveryRequest(node, mesh.DataplaneType)).
 			Exec(kds_verifier.WaitResponse(defaultTimeout, func(rs []model.Resource) {
 				Expect(rs).To(HaveLen(1))
-				Expect(rs[0].GetSpec()).To(MatchProto(kds_samples.Ingress))
+				Expect(rs[0].GetSpec()).To(MatchProto(kds_samples.Dataplane))
 			})).
 			Exec(kds_verifier.DiscoveryRequest(node, mesh.DataplaneInsightType)).
 			Exec(kds_verifier.WaitResponse(defaultTimeout, func(rs []model.Resource) {

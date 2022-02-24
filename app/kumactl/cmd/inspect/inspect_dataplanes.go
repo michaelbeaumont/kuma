@@ -2,6 +2,7 @@ package inspect
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -80,6 +81,7 @@ func printDataplaneOverviews(now time.Time, dataplaneOverviews *core_mesh.Datapl
 			"SUPPORTED CERT BACKENDS",
 			"KUMA-DP VERSION",
 			"ENVOY VERSION",
+			"DEPENDENCIES VERSIONS",
 			"NOTES",
 		},
 		NextRow: func() func() []string {
@@ -94,7 +96,7 @@ func printDataplaneOverviews(now time.Time, dataplaneOverviews *core_mesh.Datapl
 				dataplaneInsight := dataplaneOverviews.Items[i].Spec.DataplaneInsight
 				dataplaneOverview := dataplaneOverviews.Items[i]
 
-				lastSubscription, lastConnected := dataplaneInsight.GetLatestSubscription()
+				lastSubscription := dataplaneInsight.GetLastSubscription().(*mesh_proto.DiscoverySubscription)
 				totalResponsesSent := dataplaneInsight.Sum(func(s *mesh_proto.DiscoverySubscription) uint64 {
 					return s.GetStatus().GetTotal().GetResponsesSent()
 				})
@@ -102,6 +104,7 @@ func printDataplaneOverviews(now time.Time, dataplaneOverviews *core_mesh.Datapl
 					return s.GetStatus().GetTotal().GetResponsesRejected()
 				})
 				status, errs := dataplaneOverview.GetStatus()
+				lastConnected := util_proto.MustTimestampFromProto(lastSubscription.GetConnectTime())
 				lastUpdated := util_proto.MustTimestampFromProto(lastSubscription.GetStatus().GetLastUpdateTime())
 
 				var certExpiration *time.Time
@@ -124,6 +127,7 @@ func printDataplaneOverviews(now time.Time, dataplaneOverviews *core_mesh.Datapl
 
 				var kumaDpVersion string
 				var envoyVersion string
+				var dependenciesVersions []string
 				if lastSubscription.GetVersion() != nil {
 					if lastSubscription.Version.KumaDp != nil {
 						kumaDpVersion = lastSubscription.Version.KumaDp.Version
@@ -131,6 +135,17 @@ func printDataplaneOverviews(now time.Time, dataplaneOverviews *core_mesh.Datapl
 					if lastSubscription.Version.Envoy != nil {
 						envoyVersion = lastSubscription.Version.Envoy.Version
 					}
+					for name, version := range lastSubscription.GetVersion().GetDependencies() {
+						dependenciesVersions = append(
+							dependenciesVersions,
+							fmt.Sprintf("%s: %s", name, version),
+						)
+					}
+				}
+
+				dependenciesVersionsCell := strings.Join(dependenciesVersions, ", ")
+				if dependenciesVersionsCell == "" {
+					dependenciesVersionsCell = "-"
 				}
 
 				return []string{
@@ -149,6 +164,7 @@ func printDataplaneOverviews(now time.Time, dataplaneOverviews *core_mesh.Datapl
 					supportedBackend,                     // SUPPORTED CERT BACKENDS
 					kumaDpVersion,                        // KUMA-DP VERSION
 					envoyVersion,                         // ENVOY VERSION
+					dependenciesVersionsCell,             // DEPENDENCIES VERSIONS
 					strings.Join(errs, ";"),              // NOTES
 				}
 			}

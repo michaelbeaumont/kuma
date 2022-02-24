@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -44,7 +44,7 @@ var _ = Describe("Global Sync", func() {
 		for i := 0; i < numOfZones; i++ {
 			wg.Add(1)
 			zoneStore := memory.NewStore()
-			serverStream := kds_setup.StartServer(zoneStore, wg, fmt.Sprintf(zoneName, i), registry.Global().ObjectTypes(model.HasKdsEnabled()), reconcile.Any)
+			serverStream := kds_setup.StartServer(zoneStore, wg, fmt.Sprintf(zoneName, i), registry.Global().ObjectTypes(model.HasKdsEnabled()), reconcile.Any, reconcile.NoopResourceMapper)
 			serverStreams = append(serverStreams, serverStream)
 			zoneStores = append(zoneStores, zoneStore)
 		}
@@ -167,9 +167,8 @@ var _ = Describe("Global Sync", func() {
 	It("should have up to date list of provided types", func() {
 		excludeTypes := map[model.ResourceType]bool{
 			mesh.DataplaneInsightType:  true,
+			mesh.DataplaneType:         true,
 			mesh.DataplaneOverviewType: true,
-			mesh.GatewayType:           true, // Gateways are zone-local.
-			mesh.GatewayRouteType:      true, // GatewayRoutes are zone-local because Gateways are (at least for now).
 			mesh.ServiceOverviewType:   true,
 			sample.TrafficRouteType:    true,
 		}

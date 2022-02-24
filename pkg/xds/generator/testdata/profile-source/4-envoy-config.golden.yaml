@@ -1,36 +1,6 @@
 resources:
 - name: db
   resource:
-    '@type': type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment
-    clusterName: db
-    endpoints:
-    - lbEndpoints:
-      - endpoint:
-          address:
-            socketAddress:
-              address: 192.168.0.3
-              portValue: 5432
-        loadBalancingWeight: 1
-        metadata:
-          filterMetadata:
-            envoy.lb:
-              role: master
-            envoy.transport_socket_match:
-              role: master
-- name: elastic
-  resource:
-    '@type': type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment
-    clusterName: elastic
-    endpoints:
-    - lbEndpoints:
-      - endpoint:
-          address:
-            socketAddress:
-              address: 192.168.0.4
-              portValue: 9200
-        loadBalancingWeight: 1
-- name: db
-  resource:
     '@type': type.googleapis.com/envoy.config.cluster.v3.Cluster
     connectTimeout: 10s
     edsClusterConfig:
@@ -50,12 +20,12 @@ resources:
               matchSubjectAltNames:
               - exact: spiffe://demo/db
             validationContextSdsSecretConfig:
-              name: mesh_ca
+              name: mesh_ca:secret:demo
               sdsConfig:
                 ads: {}
                 resourceApiVersion: V3
           tlsCertificateSdsSecretConfigs:
-          - name: identity_cert
+          - name: identity_cert:secret:demo
             sdsConfig:
               ads: {}
               resourceApiVersion: V3
@@ -93,12 +63,12 @@ resources:
               matchSubjectAltNames:
               - exact: spiffe://demo/elastic
             validationContextSdsSecretConfig:
-              name: mesh_ca
+              name: mesh_ca:secret:demo
               sdsConfig:
                 ads: {}
                 resourceApiVersion: V3
           tlsCertificateSdsSecretConfigs:
-          - name: identity_cert
+          - name: identity_cert:secret:demo
             sdsConfig:
               ads: {}
               resourceApiVersion: V3
@@ -176,6 +146,36 @@ resources:
     lbPolicy: CLUSTER_PROVIDED
     name: outbound:passthrough:ipv4
     type: ORIGINAL_DST
+- name: db
+  resource:
+    '@type': type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment
+    clusterName: db
+    endpoints:
+    - lbEndpoints:
+      - endpoint:
+          address:
+            socketAddress:
+              address: 192.168.0.3
+              portValue: 5432
+        loadBalancingWeight: 1
+        metadata:
+          filterMetadata:
+            envoy.lb:
+              role: master
+            envoy.transport_socket_match:
+              role: master
+- name: elastic
+  resource:
+    '@type': type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment
+    clusterName: elastic
+    endpoints:
+    - lbEndpoints:
+      - endpoint:
+          address:
+            socketAddress:
+              address: 192.168.0.4
+              portValue: 9200
+        loadBalancingWeight: 1
 - name: inbound:192.168.0.1:80
   resource:
     '@type': type.googleapis.com/envoy.config.listener.v3.Listener
@@ -224,12 +224,12 @@ resources:
                 matchSubjectAltNames:
                 - prefix: spiffe://demo/
               validationContextSdsSecretConfig:
-                name: mesh_ca
+                name: mesh_ca:secret:demo
                 sdsConfig:
                   ads: {}
                   resourceApiVersion: V3
             tlsCertificateSdsSecretConfigs:
-            - name: identity_cert
+            - name: identity_cert:secret:demo
               sdsConfig:
                 ads: {}
                 resourceApiVersion: V3
@@ -280,40 +280,6 @@ resources:
                   cluster: kuma:envoy:admin
                   prefixRewrite: /ready
           statPrefix: kuma_envoy_admin
-    - filterChainMatch:
-        transportProtocol: tls
-      filters:
-      - name: envoy.filters.network.http_connection_manager
-        typedConfig:
-          '@type': type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-          httpFilters:
-          - name: envoy.filters.http.router
-          routeConfig:
-            validateClusters: false
-            virtualHosts:
-            - domains:
-              - '*'
-              name: kuma:envoy:admin
-              routes:
-              - match:
-                  headers:
-                  - exactMatch: Bearer token
-                    name: Authorization
-                  prefix: /
-                route:
-                  cluster: kuma:envoy:admin
-                  prefixRewrite: /
-          statPrefix: kuma_envoy_admin
-      transportSocket:
-        name: envoy.transport_sockets.tls
-        typedConfig:
-          '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-          commonTlsContext:
-            tlsCertificates:
-            - certificateChain:
-                inlineBytes: TFMwPT0=
-              privateKey:
-                inlineBytes: TFMwPT0=
     listenerFilters:
     - name: envoy.filters.listener.tls_inspector
       typedConfig:
@@ -385,12 +351,12 @@ resources:
                 matchSubjectAltNames:
                 - prefix: spiffe://demo/
               validationContextSdsSecretConfig:
-                name: mesh_ca
+                name: mesh_ca:secret:demo
                 sdsConfig:
                   ads: {}
                   resourceApiVersion: V3
             tlsCertificateSdsSecretConfigs:
-            - name: identity_cert
+            - name: identity_cert:secret:demo
               sdsConfig:
                 ads: {}
                 resourceApiVersion: V3
@@ -448,19 +414,19 @@ resources:
     name: outbound:passthrough:ipv4
     trafficDirection: OUTBOUND
     useOriginalDst: true
-- name: identity_cert
+- name: identity_cert:secret:demo
   resource:
     '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
-    name: identity_cert
+    name: identity_cert:secret:demo
     tlsCertificate:
       certificateChain:
         inlineBytes: Q0VSVA==
       privateKey:
         inlineBytes: S0VZ
-- name: mesh_ca
+- name: mesh_ca:secret:demo
   resource:
     '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
-    name: mesh_ca
+    name: mesh_ca:secret:demo
     validationContext:
       trustedCa:
         inlineBytes: Q0E=

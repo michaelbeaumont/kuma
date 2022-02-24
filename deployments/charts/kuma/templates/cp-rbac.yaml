@@ -5,6 +5,12 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
   {{- include "kuma.labels" . | nindent 4 }}
+{{- with .Values.global.imagePullSecrets }}
+imagePullSecrets:
+  {{- range . }}
+  - name: {{ . | quote }}
+  {{- end }}
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -24,6 +30,45 @@ rules:
       - get
       - list
       - watch
+{{ if .Values.experimental.meshGateway }}
+  - apiGroups:
+      - "apps"
+    resources:
+      - deployments
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - gateway.networking.k8s.io
+    resources:
+      - gatewayclasses
+      - gateways
+      - referencepolicies
+      - httproutes
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - gateway.networking.k8s.io
+    resources:
+      - gatewayclasses/status
+      - gateways/status
+      - httproutes/status
+    verbs:
+      - get
+      - patch
+      - update
+{{- end }}
   - apiGroups:
       - coordination.k8s.io
     resources:
@@ -49,6 +94,7 @@ rules:
       - services
     verbs:
       - get
+      - delete
       - list
       - watch
       - create
@@ -71,6 +117,8 @@ rules:
       - zoneinsights
       - zoneingresses
       - zoneingressinsights
+      - zoneegresses
+      - zoneegressinsights
       - meshinsights
       - serviceinsights
       - proxytemplates
@@ -89,11 +137,13 @@ rules:
       - update
       - patch
       - delete
+{{ if .Values.experimental.meshGateway }}
   - apiGroups:
       - kuma.io
     resources:
-      - gateways
-      - gatewayroutes
+      - meshgateways
+      - meshgatewayroutes
+      - meshgatewayinstances
     verbs:
       - get
       - list
@@ -102,6 +152,15 @@ rules:
       - update
       - patch
       - delete
+  - apiGroups:
+      - kuma.io
+    resources:
+      - meshgatewayinstances/status
+    verbs:
+      - get
+      - patch
+      - update
+{{- end }}
   - apiGroups:
       - kuma.io
     resources:

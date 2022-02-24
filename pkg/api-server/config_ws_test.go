@@ -2,11 +2,11 @@ package api_server_test
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	api_server_config "github.com/kumahq/kuma/pkg/config/api-server"
@@ -45,7 +45,7 @@ var _ = Describe("Config WS", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// then
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		Expect(err).ToNot(HaveOccurred())
 
 		json := fmt.Sprintf(`
@@ -82,7 +82,7 @@ var _ = Describe("Config WS", func() {
 			"params": {
 			  "adminAccessLogPath": "/dev/null",
 			  "adminAddress": "127.0.0.1",
-			  "adminPort": 0,
+			  "adminPort": 9901,
 			  "xdsConnectTimeout": "1s",
 			  "xdsHost": "",
 			  "xdsPort": 0
@@ -133,7 +133,6 @@ var _ = Describe("Config WS", func() {
 		  },
 		  "metrics": {
 			"dataplane": {
-			  "enabled": true,
 			  "subscriptionLimit": 2,
 			  "idleTimeout": "5m0s"
 			},
@@ -142,7 +141,6 @@ var _ = Describe("Config WS", func() {
 			  "minResyncTimeout": "1s"
 			},
 			"zone": {
-			  "enabled": true,
 			  "subscriptionLimit": 10,
 			  "idleTimeout": "5m0s"
 			}
@@ -187,6 +185,7 @@ var _ = Describe("Config WS", func() {
 				"port": 5443
 			  },
 			  "controlPlaneServiceName": "kuma-control-plane",
+			  "serviceAccountName": "system:serviceaccount:kuma-system:kuma-control-plane",
 			  "injector": {
 				"caCertFile": "",
 				"builtinDNS": {
@@ -204,7 +203,6 @@ var _ = Describe("Config WS", func() {
 				  "image": "kuma/kuma-init:latest"
 				},
 				"sidecarContainer": {
-				  "adminPort": 9901,
 				  "drainTime": "30s",
 				  "envVars": {},
 				  "gid": 5678,
@@ -334,8 +332,19 @@ var _ = Describe("Config WS", func() {
               "generateUserToken": {
                 "users": ["mesh-system:admin"],
                 "groups": ["mesh-system:admin"]
+              },
+              "generateZoneToken": {
+                "users": ["mesh-system:admin"],
+                "groups": ["mesh-system:admin"]
+              },
+              "viewConfigDump": {
+                "users": [ ],
+                "groups": ["mesh-system:unauthenticated","mesh-system:authenticated"]
               }
             }
+          },
+          "experimental": {
+            "meshGateway": false
           }
         }
 		`, port, cfg.HTTPS.Port)

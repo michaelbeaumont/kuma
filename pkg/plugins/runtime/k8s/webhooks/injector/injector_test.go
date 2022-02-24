@@ -3,12 +3,11 @@ package injector_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	kube_core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -45,7 +44,7 @@ var _ = Describe("Injector", func() {
 			var cfg conf.Injector
 			Expect(config.Load(filepath.Join("testdata", given.cfgFile), &cfg)).To(Succeed())
 			cfg.CaCertFile = filepath.Join("..", "..", "..", "..", "..", "..", "test", "certs", "server-cert.pem")
-			injector, err := inject.New(cfg, "http://kuma-control-plane.kuma-system:5681", k8sClient, k8s.NewSimpleConverter())
+			injector, err := inject.New(cfg, "http://kuma-control-plane.kuma-system:5681", k8sClient, k8s.NewSimpleConverter(), 9901)
 			Expect(err).ToNot(HaveOccurred())
 
 			// and create mesh
@@ -64,7 +63,7 @@ var _ = Describe("Injector", func() {
 
 			By("loading input Pod")
 			// when
-			input, err := ioutil.ReadFile(inputFile)
+			input, err := os.ReadFile(inputFile)
 			// then
 			Expect(err).ToNot(HaveOccurred())
 			// when

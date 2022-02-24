@@ -4,15 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	envoy_bootstrap_v3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	"github.com/pkg/errors"
 
 	command_utils "github.com/kumahq/kuma/app/kuma-dp/pkg/dataplane/command"
@@ -21,6 +20,7 @@ import (
 	"github.com/kumahq/kuma/pkg/core/resources/model/rest"
 	"github.com/kumahq/kuma/pkg/core/runtime/component"
 	pkg_log "github.com/kumahq/kuma/pkg/log"
+	"github.com/kumahq/kuma/pkg/util/files"
 )
 
 var (
@@ -35,15 +35,12 @@ type BootstrapParams struct {
 	DynamicMetadata map[string]string
 }
 
-type BootstrapConfigFactoryFunc func(url string, cfg kuma_dp.Config, params BootstrapParams) ([]byte, error)
+type BootstrapConfigFactoryFunc func(url string, cfg kuma_dp.Config, params BootstrapParams) (*envoy_bootstrap_v3.Bootstrap, []byte, error)
 
 type Opts struct {
 	Config          kuma_dp.Config
-	Generator       BootstrapConfigFactoryFunc
+	BootstrapConfig []byte
 	Dataplane       *rest.Resource
-	DynamicMetadata map[string]string
-	DNSPort         uint32
-	EmptyDNSPort    uint32
 	Stdout          io.Writer
 	Stderr          io.Writer
 	Quit            chan struct{}
@@ -73,67 +70,16 @@ func (e *Envoy) NeedLeaderElection() bool {
 	return false
 }
 
-func getSelfPath() (string, error) {
-	ex, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Dir(ex), nil
-}
-
-func lookupBinaryPath(candidatePaths []string) (string, error) {
-	for _, candidatePath := range candidatePaths {
-		path, err := exec.LookPath(candidatePath)
-		if err == nil {
-			return path, nil
-		}
-	}
-
-	return "", errors.Errorf("could not find binary in any of the following paths: %v", candidatePaths)
-}
-
 func lookupEnvoyPath(configuredPath string) (string, error) {
-	selfPath, err := getSelfPath()
-	if err != nil {
-		return "", err
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-
-	path, err := lookupBinaryPath([]string{
-		configuredPath,
-		selfPath + "/envoy",
-		cwd + "/envoy",
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return path, nil
+	return files.LookupBinaryPath(
+		files.LookupInPath(configuredPath),
+		files.LookupInCurrentDirectory("envoy"),
+		files.LookupNextToCurrentExecutable("envoy"),
+	)
 }
 
 func (e *Envoy) Start(stop <-chan struct{}) error {
-	envoyVersion, err := e.version()
-	if err != nil {
-		return errors.Wrap(err, "failed to get Envoy version")
-	}
-	runLog.Info("fetched Envoy version", "version", envoyVersion)
-	runLog.Info("generating bootstrap configuration")
-	bootstrapConfig, err := e.opts.Generator(e.opts.Config.ControlPlane.URL, e.opts.Config, BootstrapParams{
-		Dataplane:       e.opts.Dataplane,
-		DNSPort:         e.opts.DNSPort,
-		EmptyDNSPort:    e.opts.EmptyDNSPort,
-		EnvoyVersion:    *envoyVersion,
-		DynamicMetadata: e.opts.DynamicMetadata,
-	})
-	if err != nil {
-		return errors.Errorf("Failed to generate Envoy bootstrap config. %v", err)
-	}
-	configFile, err := GenerateBootstrapFile(e.opts.Config.DataplaneRuntime, bootstrapConfig)
+	configFile, err := GenerateBootstrapFile(e.opts.Config.DataplaneRuntime, e.opts.BootstrapConfig)
 	if err != nil {
 		return err
 	}
@@ -209,9 +155,8 @@ func (e *Envoy) Start(stop <-chan struct{}) error {
 	}
 }
 
-func (e *Envoy) version() (*EnvoyVersion, error) {
-	binaryPathConfig := e.opts.Config.DataplaneRuntime.BinaryPath
-	resolvedPath, err := lookupEnvoyPath(binaryPathConfig)
+func GetEnvoyVersion(binaryPath string) (*EnvoyVersion, error) {
+	resolvedPath, err := lookupEnvoyPath(binaryPath)
 	if err != nil {
 		return nil, err
 	}

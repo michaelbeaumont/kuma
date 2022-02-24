@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,12 +13,10 @@ import (
 	"time"
 	"unicode"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/spf13/cobra"
 
-	"github.com/kumahq/kuma/app/kumactl/pkg/config"
 	"github.com/kumahq/kuma/pkg/api-server/types"
 	"github.com/kumahq/kuma/pkg/util/test"
 	"github.com/kumahq/kuma/pkg/version"
@@ -31,7 +28,7 @@ var _ = Describe("kumactl config control-planes add", func() {
 
 	BeforeEach(func() {
 		var err error
-		configFile, err = ioutil.TempFile("", "")
+		configFile, err = os.CreateTemp("", "")
 		Expect(err).ToNot(HaveOccurred())
 	})
 	AfterEach(func() {
@@ -119,22 +116,18 @@ var _ = Describe("kumactl config control-planes add", func() {
 
 		It("should fail when CP timeouts", func() {
 			// setup
-			currentTimeout := config.DefaultApiServerTimeout
-			config.DefaultApiServerTimeout = 10 * time.Millisecond
-			defer func() {
-				config.DefaultApiServerTimeout = currentTimeout
-			}()
-			timeout := config.DefaultApiServerTimeout * 5 // so we are sure we exceed the timeout
 			server, port := setupCpServer(func(writer http.ResponseWriter, req *http.Request) {
-				time.Sleep(timeout)
+				time.Sleep(time.Millisecond * 20)
 			})
 			defer server.Close()
 
 			// given
 			rootCmd.SetArgs([]string{"--config-file", configFile.Name(),
+				"--api-timeout", "10ms",
 				"config", "control-planes", "add",
 				"--name", "example",
-				"--address", fmt.Sprintf("http://localhost:%d", port)})
+				"--address", fmt.Sprintf("http://localhost:%d", port),
+			})
 			// when
 			err := rootCmd.Execute()
 
@@ -181,9 +174,9 @@ var _ = Describe("kumactl config control-planes add", func() {
 		DescribeTable("should add a new Control Plane by name and address",
 			func(given testCase) {
 				// setup
-				initial, err := ioutil.ReadFile(filepath.Join("testdata", given.configFile))
+				initial, err := os.ReadFile(filepath.Join("testdata", given.configFile))
 				Expect(err).ToNot(HaveOccurred())
-				err = ioutil.WriteFile(configFile.Name(), initial, 0600)
+				err = os.WriteFile(configFile.Name(), initial, 0600)
 				Expect(err).ToNot(HaveOccurred())
 
 				// setup cp index server for validation to pass
@@ -211,13 +204,13 @@ var _ = Describe("kumactl config control-planes add", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				// when
-				expectedWithPlaceholder, err := ioutil.ReadFile(filepath.Join("testdata", given.goldenFile))
+				expectedWithPlaceholder, err := os.ReadFile(filepath.Join("testdata", given.goldenFile))
 				// then
 				Expect(err).ToNot(HaveOccurred())
 				expected := strings.ReplaceAll(string(expectedWithPlaceholder), "http://placeholder-address", fmt.Sprintf("http://localhost:%d", port))
 
 				// when
-				actual, err := ioutil.ReadFile(configFile.Name())
+				actual, err := os.ReadFile(configFile.Name())
 				// then
 				Expect(err).ToNot(HaveOccurred())
 

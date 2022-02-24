@@ -15,7 +15,6 @@ import (
 	xds_context "github.com/kumahq/kuma/pkg/xds/context"
 	"github.com/kumahq/kuma/pkg/xds/envoy"
 	"github.com/kumahq/kuma/pkg/xds/envoy/clusters"
-	"github.com/kumahq/kuma/pkg/xds/generator"
 	"github.com/kumahq/kuma/pkg/xds/topology"
 )
 
@@ -27,13 +26,13 @@ type ClusterGenerator struct {
 }
 
 // SupportsProtocol is always true for generating clusters.
-func (*ClusterGenerator) SupportsProtocol(mesh_proto.Gateway_Listener_Protocol) bool {
+func (*ClusterGenerator) SupportsProtocol(mesh_proto.MeshGateway_Listener_Protocol) bool {
 	return true
 }
 
 // GenerateHost generates clusters for all the services targeted in the current route table.
-func (c *ClusterGenerator) GenerateHost(ctx xds_context.Context, info *GatewayResourceInfo) (*core_xds.ResourceSet, error) {
-	resources := ResourceAggregator{}
+func (c *ClusterGenerator) GenerateClusters(ctx xds_context.Context, info GatewayListenerInfo, routes []route.Entry) (*core_xds.ResourceSet, error) {
+	resources := core_xds.NewResourceSet()
 
 	// If there is a service name conflict between external services
 	// and mesh services, the external service takes priority since
@@ -43,13 +42,21 @@ func (c *ClusterGenerator) GenerateHost(ctx xds_context.Context, info *GatewayRe
 	// an array of endpoint and checks whether the first entry is from
 	// an external service. Because the dataplane endpoints happen to be
 	// generated first, the mesh service will have priority.
-	for _, dest := range routeDestinations(&info.RouteTable) {
+	for _, dest := range routeDestinations(routes) {
 		matched := match.ExternalService(info.ExternalServices, mesh_proto.TagSelector(dest.Destination))
+
+		// If there are zone egresses present we want to direct the traffic
+		// through tem. The condition is, the mesh must have mTLS enabled
+		zoneEgresses := ctx.Mesh.Resources.ZoneEgresses().Items
+		mtlsEnabled := ctx.Mesh.Resource.MTLSEnabled()
+
+		isDirectExternalService := len(matched.Items) > 0 && (len(zoneEgresses) == 0 || !mtlsEnabled)
+		isExternalServiceThroughZoneEgress := len(matched.Items) > 0 && !isDirectExternalService
 
 		r, err := func() (*core_xds.Resource, error) {
 			service := dest.Destination[mesh_proto.ServiceTag]
 
-			if len(matched.Items) > 0 {
+			if isDirectExternalService {
 				log.V(1).Info("generating external service cluster",
 					"service", service,
 				)
@@ -61,19 +68,25 @@ func (c *ClusterGenerator) GenerateHost(ctx xds_context.Context, info *GatewayRe
 				"service", service,
 			)
 
-			return c.generateMeshCluster(ctx, info, dest)
+			upstreamServiceName := dest.Destination[mesh_proto.ServiceTag]
+			if isExternalServiceThroughZoneEgress {
+				upstreamServiceName = mesh_proto.ZoneEgressServiceName
+			}
+
+			return c.generateMeshCluster(ctx.Mesh.Resource, info, dest, upstreamServiceName)
 		}()
 
-		if resources.Add(r, err) != nil {
+		if err != nil {
 			return nil, err
 		}
+		resources.Add(r)
 
 		// Assign the generated unique cluster name to the
 		// destination so that subsequent generator passes can
 		// reference it.
 		dest.Name = r.Name
 
-		if len(matched.Items) > 0 {
+		if isDirectExternalService {
 			// External clusters don't get a load assignment.
 			continue
 		}
@@ -92,35 +105,32 @@ func (c *ClusterGenerator) GenerateHost(ctx xds_context.Context, info *GatewayRe
 			ctx.Mesh.Hash,
 			cluster,
 			info.Proxy.APIVersion,
+			ctx.Mesh.EndpointMap,
 		)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to build LoadAssignment for cluster %q", dest.Name)
 		}
 
-		resources.Get().Add(NewResource(dest.Name, loadAssignment))
+		resources.Add(NewResource(dest.Name, loadAssignment))
 	}
 
-	return resources.Get(), nil
+	return resources, nil
 }
 
 func (c *ClusterGenerator) generateMeshCluster(
-	ctx xds_context.Context,
-	info *GatewayResourceInfo,
+	mesh *core_mesh.MeshResource,
+	info GatewayListenerInfo,
 	dest *route.Destination,
+	upstreamServiceName string,
 ) (*core_xds.Resource, error) {
-	protocol := generator.InferServiceProtocol([]core_xds.Endpoint{{
+	protocol := route.InferServiceProtocol([]core_xds.Endpoint{{
 		Tags: dest.Destination,
 	}})
-
-	// HTTP is a better default than "unknown".
-	if protocol == core_mesh.ProtocolUnknown {
-		protocol = core_mesh.ProtocolHTTP
-	}
 
 	builder := newClusterBuilder(info.Proxy.APIVersion, protocol, dest).Configure(
 		clusters.EdsCluster(dest.Destination[mesh_proto.ServiceTag]),
 		clusters.LB(nil /* TODO(jpeach) uses default Round Robin*/),
-		clusters.ClientSideMTLS(ctx, dest.Destination[mesh_proto.ServiceTag], true, []envoy.Tags{dest.Destination}),
+		clusters.ClientSideMTLS(mesh, upstreamServiceName, true, []envoy.Tags{dest.Destination}),
 	)
 
 	// TODO(jpeach) Envoy configures retries and fault injection with
@@ -134,7 +144,7 @@ func (c *ClusterGenerator) generateMeshCluster(
 
 func (c *ClusterGenerator) generateExternalCluster(
 	ctx xds_context.Context,
-	info *GatewayResourceInfo,
+	info GatewayListenerInfo,
 	service core_mesh.ExternalServiceResourceList,
 	dest *route.Destination,
 ) (*core_xds.Resource, error) {
@@ -149,17 +159,12 @@ func (c *ClusterGenerator) generateExternalCluster(
 		endpoints = append(endpoints, *ep)
 	}
 
-	protocol := generator.InferServiceProtocol(endpoints)
-
-	// HTTP is a better default than "unknown".
-	if protocol == core_mesh.ProtocolUnknown {
-		protocol = core_mesh.ProtocolHTTP
-	}
+	protocol := route.InferServiceProtocol(endpoints)
 
 	return buildClusterResource(
 		dest,
 		newClusterBuilder(info.Proxy.APIVersion, protocol, dest).Configure(
-			clusters.StrictDNSCluster(dest.Destination[mesh_proto.ServiceTag], endpoints, info.Dataplane.IsIPv6()),
+			clusters.ProvidedEndpointCluster(dest.Destination[mesh_proto.ServiceTag], info.Dataplane.IsIPv6(), endpoints...),
 			clusters.ClientSideTLS(endpoints),
 		),
 	)
@@ -218,10 +223,10 @@ func buildClusterResource(dest *route.Destination, c *clusters.ClusterBuilder) (
 	}, nil
 }
 
-func routeDestinations(table *route.Table) []*route.Destination {
+func routeDestinations(entries []route.Entry) []*route.Destination {
 	var destinations []*route.Destination
 
-	for _, e := range table.Entries {
+	for _, e := range entries {
 		if m := e.Mirror; m != nil {
 			destinations = append(destinations, &m.Forward)
 		}

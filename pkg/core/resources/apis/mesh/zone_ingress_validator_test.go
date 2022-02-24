@@ -2,8 +2,7 @@ package mesh_test
 
 import (
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
@@ -73,6 +72,26 @@ var _ = Describe("Dataplane", func() {
               address: 192.168.0.1
               port: 10001
             availableServices: []`,
+		),
+		Entry("with admin port equal to port but different network interfaces", `
+            type: ZoneIngress
+            name: zi-1
+            networking:
+              admin:
+                port: 10001
+              address: 192.168.0.1
+              advertisedAddress: 10.0.0.1
+              port: 10001
+              advertisedPort: 1234
+            availableServices:
+              - tags:
+                  kuma.io/service: backend
+                  version: "1"
+                  region: us
+              - tags:
+                  kuma.io/service: web
+                  version: v2
+                  region: eu`,
 		),
 	)
 
@@ -153,14 +172,39 @@ var _ = Describe("Dataplane", func() {
                   message: address has to be valid IP address or domain name
                 - field: networking.advertisedPort
                   message: port must be in the range [1, 65535]
-                - field: availableService[2].tags["kuma.io/service"]
-                  message: cannot be empty
-                - field: availableService[3].tags.tags["kuma.io/service"]
-                  message: tag value cannot be empty
-                - field: availableService[4].tags["kuma.io/service"]
-                  message: cannot be empty
-                - field: availableService[4].tags.tags["version"]
-                  message: tag value cannot be empty`,
+                - field: availableService[2].tags
+                  message: mandatory tag "kuma.io/service" is missing
+                - field: availableService[3].tags["kuma.io/service"]
+                  message: tag value must be non-empty
+                - field: availableService[4].tags["version"]
+                  message: tag value must be non-empty
+                - field: availableService[4].tags
+                  message: mandatory tag "kuma.io/service" is missing`,
+		}),
+		Entry("admin port equal to port", testCase{
+			dataplane: `
+            type: ZoneIngress
+            name: zi-1
+            networking:
+              admin:
+                port: 10001
+              address: 127.0.0.1
+              advertisedAddress: 10.0.0.1
+              port: 10001
+              advertisedPort: 1234
+            availableServices:
+              - tags:
+                  kuma.io/service: backend
+                  version: "1"
+                  region: us
+              - tags:
+                  kuma.io/service: web
+                  version: v2
+                  region: eu`,
+			expected: `
+                violations:
+                - field: networking.admin.port
+                  message: must differ from port`,
 		}),
 	)
 

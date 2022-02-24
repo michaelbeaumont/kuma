@@ -23,8 +23,7 @@ var DefaultConfig = func() Config {
 		},
 		Dataplane: Dataplane{
 			Mesh:      "",
-			Name:      "",                                                      // Dataplane name must be set explicitly
-			AdminPort: config_types.MustPortRange(30001, config_types.MaxPort), // by default, automatically choose a free port for Envoy Admin interface
+			Name:      "", // Dataplane name must be set explicitly
 			DrainTime: 30 * time.Second,
 			ProxyType: "dataplane",
 		},
@@ -116,6 +115,7 @@ type Dataplane struct {
 	// Port (or range of ports to choose from) for Envoy Admin API to listen on.
 	// Empty value indicates that Envoy Admin API should not be exposed over TCP.
 	// Format: "9901 | 9901-9999 | 9901- | -9901".
+	// Deprecated
 	AdminPort config_types.PortRange `yaml:"adminPort,omitempty" envconfig:"kuma_dataplane_admin_port"`
 	// Drain time for listeners.
 	DrainTime time.Duration `yaml:"drainTime,omitempty" envconfig:"kuma_dataplane_drain_time"`
@@ -173,6 +173,9 @@ func (c *ControlPlane) Sanitize() {
 }
 
 func (c *ControlPlane) Validate() (errs error) {
+	if _, err := url.Parse(c.URL); err != nil {
+		errs = multierr.Append(errs, errors.Wrapf(err, ".Url is not valid"))
+	}
 	if err := c.Retry.Validate(); err != nil {
 		errs = multierr.Append(errs, errors.Wrapf(err, ".Retry is not valid"))
 	}
@@ -187,7 +190,7 @@ func (d *Dataplane) Sanitize() {
 func (d *Dataplane) Validate() (errs error) {
 	proxyType := mesh_proto.ProxyType(d.ProxyType)
 	switch proxyType {
-	case mesh_proto.DataplaneProxyType, mesh_proto.IngressProxyType:
+	case mesh_proto.DataplaneProxyType, mesh_proto.IngressProxyType, mesh_proto.EgressProxyType:
 	default:
 		if err := proxyType.IsValid(); err != nil {
 			errs = multierr.Append(errs, errors.Wrap(err, ".ProxyType is not valid"))
@@ -197,7 +200,7 @@ func (d *Dataplane) Validate() (errs error) {
 		}
 	}
 
-	if d.Mesh == "" && proxyType != mesh_proto.IngressProxyType {
+	if d.Mesh == "" && proxyType != mesh_proto.IngressProxyType && proxyType != mesh_proto.EgressProxyType {
 		errs = multierr.Append(errs, errors.Errorf(".Mesh must be non-empty"))
 	}
 

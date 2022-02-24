@@ -3,8 +3,7 @@ package generator_test
 import (
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -35,7 +34,19 @@ var _ = Describe("TransparentProxyGenerator", func() {
 						Meta: &test_model.ResourceMeta{
 							Name: "default",
 						},
-						Spec: &mesh_proto.Mesh{},
+						Spec: &mesh_proto.Mesh{
+							Logging: &mesh_proto.Logging{
+								Backends: []*mesh_proto.LoggingBackend{
+									{
+										Name: "file",
+										Type: mesh_proto.LoggingFileType,
+										Conf: util_proto.MustToStruct(&mesh_proto.FileLoggingBackendConfig{
+											Path: "/var/log",
+										}),
+									},
+								},
+							},
+						},
 					},
 				},
 			}
@@ -84,13 +95,11 @@ var _ = Describe("TransparentProxyGenerator", func() {
 				},
 				APIVersion: envoy_common.APIV3,
 				Policies: model.MatchedPolicies{
-					Logs: map[model.ServiceName]*mesh_proto.LoggingBackend{ // to show that is not picked
+					TrafficLogs: map[model.ServiceName]*core_mesh.TrafficLogResource{ // to show that is not picked
 						"some-service": {
-							Name: "file",
-							Type: mesh_proto.LoggingFileType,
-							Conf: util_proto.MustToStruct(&mesh_proto.FileLoggingBackendConfig{
-								Path: "/var/log",
-							}),
+							Spec: &mesh_proto.TrafficLog{
+								Conf: &mesh_proto.TrafficLog_Conf{Backend: "file"},
+							},
 						},
 					},
 				},
@@ -115,13 +124,11 @@ var _ = Describe("TransparentProxyGenerator", func() {
 				},
 				APIVersion: envoy_common.APIV3,
 				Policies: model.MatchedPolicies{
-					Logs: map[model.ServiceName]*mesh_proto.LoggingBackend{ // to show that is is not picked
+					TrafficLogs: map[model.ServiceName]*core_mesh.TrafficLogResource{ // to show that is is not picked
 						"pass_through": {
-							Name: "file",
-							Type: mesh_proto.LoggingFileType,
-							Conf: util_proto.MustToStruct(&mesh_proto.FileLoggingBackendConfig{
-								Path: "/var/log",
-							}),
+							Spec: &mesh_proto.TrafficLog{
+								Conf: &mesh_proto.TrafficLog_Conf{Backend: "file"},
+							},
 						},
 					},
 				},
@@ -147,13 +154,11 @@ var _ = Describe("TransparentProxyGenerator", func() {
 				},
 				APIVersion: envoy_common.APIV3,
 				Policies: model.MatchedPolicies{
-					Logs: map[model.ServiceName]*mesh_proto.LoggingBackend{ // to show that is not picked
+					TrafficLogs: map[model.ServiceName]*core_mesh.TrafficLogResource{ // to show that is not picked
 						"some-service": {
-							Name: "file",
-							Type: mesh_proto.LoggingFileType,
-							Conf: util_proto.MustToStruct(&mesh_proto.FileLoggingBackendConfig{
-								Path: "/var/log",
-							}),
+							Spec: &mesh_proto.TrafficLog{
+								Conf: &mesh_proto.TrafficLog_Conf{Backend: "file"},
+							},
 						},
 					},
 				},

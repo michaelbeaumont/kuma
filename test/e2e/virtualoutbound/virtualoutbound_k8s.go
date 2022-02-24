@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gruntwork-io/terratest/modules/k8s"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -14,41 +14,24 @@ import (
 )
 
 func VirtualOutboundOnK8s() {
-	namespaceWithSidecarInjection := func(namespace string) string {
-		return fmt.Sprintf(`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: %s
-  annotations:
-    kuma.io/sidecar-injection: "enabled"
-`, namespace)
-	}
-
 	var k8sCluster Cluster
-	var optsKubernetes = append(KumaK8sDeployOpts,
-		WithEnv("KUMA_DNS_SERVER_SERVICE_VIP_ENABLED", "false"),
-	)
 
 	BeforeEach(func() {
-		c, err := NewK8SCluster(NewTestingT(), Kuma1, Silent)
-		Expect(err).ToNot(HaveOccurred())
-		k8sCluster = c
+		k8sCluster = NewK8sCluster(NewTestingT(), Kuma1, Silent)
 
-		err = NewClusterSetup().
-			Install(Kuma(config_core.Standalone, optsKubernetes...)).
-			Install(YamlK8s(namespaceWithSidecarInjection(TestNamespace))).
+		err := NewClusterSetup().
+			Install(Kuma(config_core.Standalone,
+				WithEnv("KUMA_DNS_SERVER_SERVICE_VIP_ENABLED", "false"),
+			)).
+			Install(NamespaceWithSidecarInjection(TestNamespace)).
 			Install(DemoClientK8s("default")).
 			Install(testserver.Install(testserver.WithStatefulSet(true), testserver.WithReplicas(2))).
 			Setup(k8sCluster)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	AfterEach(func() {
-		if ShouldSkipCleanup() {
-			return
-		}
-		Expect(k8sCluster.DeleteKuma(optsKubernetes...)).To(Succeed())
+	E2EAfterEach(func() {
+		Expect(k8sCluster.DeleteKuma()).To(Succeed())
 		Expect(k8sCluster.DeleteNamespace(TestNamespace)).To(Succeed())
 		Expect(k8sCluster.DismissCluster()).To(Succeed())
 	})

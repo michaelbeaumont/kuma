@@ -7,9 +7,9 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -32,12 +32,15 @@ import (
 	"github.com/kumahq/kuma/pkg/core/resources/model"
 	"github.com/kumahq/kuma/pkg/core/resources/registry"
 	"github.com/kumahq/kuma/pkg/core/runtime"
+	"github.com/kumahq/kuma/pkg/dns/vips"
+	"github.com/kumahq/kuma/pkg/envoy/admin"
 	"github.com/kumahq/kuma/pkg/metrics"
 	"github.com/kumahq/kuma/pkg/plugins/authn/api-server/certs"
 	"github.com/kumahq/kuma/pkg/tokens/builtin"
-	tokens_access "github.com/kumahq/kuma/pkg/tokens/builtin/access"
 	tokens_server "github.com/kumahq/kuma/pkg/tokens/builtin/server"
 	util_prometheus "github.com/kumahq/kuma/pkg/util/prometheus"
+	xds_context "github.com/kumahq/kuma/pkg/xds/context"
+	"github.com/kumahq/kuma/pkg/xds/server"
 )
 
 var (
@@ -77,6 +80,7 @@ func init() {
 
 func NewApiServer(
 	resManager manager.ResourceManager,
+	meshContextBuilder xds_context.MeshContextBuilder,
 	wsManager customization.APIInstaller,
 	defs []model.ResourceTypeDescriptor,
 	cfg *kuma_cp.Config,
@@ -85,6 +89,7 @@ func NewApiServer(
 	getInstanceId func() string, getClusterId func() string,
 	authenticator authn.Authenticator,
 	access runtime.Access,
+	envoyAdminClient admin.EnvoyAdminClient,
 ) (*ApiServer, error) {
 	serverConfig := cfg.ApiServer
 	container := restful.NewContainer()
@@ -117,9 +122,10 @@ func NewApiServer(
 		Produces(restful.MIME_JSON)
 
 	addResourcesEndpoints(ws, defs, resManager, cfg, access.ResourceAccess)
+	addInspectEndpoints(ws, cfg, meshContextBuilder, resManager, access.ConfigDumpAccess, envoyAdminClient)
 	container.Add(ws)
 
-	if err := addIndexWsEndpoints(ws, getInstanceId, getClusterId); err != nil {
+	if err := addIndexWsEndpoints(ws, getInstanceId, getClusterId, enableGUI); err != nil {
 		return nil, errors.Wrap(err, "could not create index webservice")
 	}
 	configWs, err := configWs(cfg)
@@ -127,25 +133,15 @@ func NewApiServer(
 		return nil, errors.Wrap(err, "could not create configuration webservice")
 	}
 	container.Add(configWs)
-
 	container.Add(versionsWs())
-
-	zonesWs := zonesWs(resManager)
-	container.Add(zonesWs)
+	container.Add(zonesWs(resManager))
+	container.Add(tokenWs(resManager, access))
 
 	container.Filter(cors.Filter)
 
 	newApiServer := &ApiServer{
 		mux:    container.ServeMux,
 		config: *serverConfig,
-	}
-
-	dpWs, err := dataplaneTokenWs(resManager, access.DataplaneTokenAccess)
-	if err != nil {
-		return nil, err
-	}
-	if dpWs != nil {
-		container.Add(dpWs)
 	}
 
 	// Handle the GUI
@@ -182,6 +178,13 @@ func addResourcesEndpoints(ws *restful.WebService, defs []model.ResourceTypeDesc
 	}
 	zoneIngressOverviewEndpoints.addFindEndpoint(ws)
 	zoneIngressOverviewEndpoints.addListEndpoint(ws)
+
+	zoneEgressOverviewEndpoints := zoneEgressOverviewEndpoints{
+		resManager:     resManager,
+		resourceAccess: resourceAccess,
+	}
+	zoneEgressOverviewEndpoints.addFindEndpoint(ws)
+	zoneEgressOverviewEndpoints.addListEndpoint(ws)
 
 	globalInsightsEndpoints := globalInsightsEndpoints{
 		resManager:     resManager,
@@ -227,16 +230,14 @@ func addResourcesEndpoints(ws *restful.WebService, defs []model.ResourceTypeDesc
 	}
 }
 
-func dataplaneTokenWs(resManager manager.ResourceManager, access tokens_access.DataplaneTokenAccess) (*restful.WebService, error) {
-	dpIssuer, err := builtin.NewDataplaneTokenIssuer(resManager)
-	if err != nil {
-		return nil, err
-	}
-	zoneIngressIssuer, err := builtin.NewZoneIngressTokenIssuer(resManager)
-	if err != nil {
-		return nil, err
-	}
-	return tokens_server.NewWebservice(dpIssuer, zoneIngressIssuer, access), nil
+func tokenWs(resManager manager.ResourceManager, access runtime.Access) *restful.WebService {
+	return tokens_server.NewWebservice(
+		builtin.NewDataplaneTokenIssuer(resManager),
+		builtin.NewZoneIngressTokenIssuer(resManager),
+		builtin.NewZoneTokenIssuer(resManager),
+		access.DataplaneTokenAccess,
+		access.ZoneTokenAccess,
+	)
 }
 
 func (a *ApiServer) Start(stop <-chan struct{}) error {
@@ -323,7 +324,7 @@ func configureMTLS(certsDir string) (*tls.Config, error) {
 	if certsDir != "" {
 		log.Info("loading client certificates")
 		clientCertPool := x509.NewCertPool()
-		files, err := ioutil.ReadDir(certsDir)
+		files, err := os.ReadDir(certsDir)
 		if err != nil {
 			return nil, err
 		}
@@ -337,7 +338,7 @@ func configureMTLS(certsDir string) (*tls.Config, error) {
 			}
 			log.Info("adding client certificate", "file", file.Name())
 			path := filepath.Join(certsDir, file.Name())
-			caCert, err := ioutil.ReadFile(path)
+			caCert, err := os.ReadFile(path)
 			if err != nil {
 				return nil, errors.Wrapf(err, "could not read certificate %q", path)
 			}
@@ -369,6 +370,14 @@ func SetupServer(rt runtime.Runtime) error {
 	cfg := rt.Config()
 	apiServer, err := NewApiServer(
 		rt.ResourceManager(),
+		xds_context.NewMeshContextBuilder(
+			rt.ResourceManager(),
+			server.MeshResourceTypes(server.HashMeshExcludedResources),
+			net.LookupIP,
+			cfg.Multizone.Zone.Name,
+			vips.NewPersistence(rt.ResourceManager(), rt.ConfigManager()),
+			cfg.DNSServer.Domain,
+		),
 		rt.APIInstaller(),
 		registry.Global().ObjectDescriptors(model.HasWsEnabled()),
 		&cfg,
@@ -378,6 +387,7 @@ func SetupServer(rt runtime.Runtime) error {
 		rt.GetClusterId,
 		rt.APIServerAuthenticator(),
 		rt.Access(),
+		rt.EnvoyAdminClient(),
 	)
 	if err != nil {
 		return err

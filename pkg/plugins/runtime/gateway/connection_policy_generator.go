@@ -3,42 +3,35 @@ package gateway
 import (
 	"sort"
 
-	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	"github.com/kumahq/kuma/pkg/core/policy"
 	"github.com/kumahq/kuma/pkg/core/resources/model"
-	core_xds "github.com/kumahq/kuma/pkg/core/xds"
 	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/match"
-	xds_context "github.com/kumahq/kuma/pkg/xds/context"
+	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/route"
 	"github.com/kumahq/kuma/pkg/xds/envoy"
 )
 
-// ConnectionPolicyGenerator matches connection policies for each route table
-// entry that forwards traffic.
-type ConnectionPolicyGenerator struct {
-}
+func PopulatePolicies(info GatewayListenerInfo, host GatewayHost, routes []route.Entry) []route.Entry {
+	var routesWithPolicies []route.Entry
 
-func (*ConnectionPolicyGenerator) SupportsProtocol(p mesh_proto.Gateway_Listener_Protocol) bool {
-	return true
-}
-
-func (g *ConnectionPolicyGenerator) GenerateHost(ctx xds_context.Context, info *GatewayResourceInfo) (*core_xds.ResourceSet, error) {
-	for _, e := range info.RouteTable.Entries {
+	for _, e := range routes {
 		for i, destination := range e.Action.Forward {
-			e.Action.Forward[i].Policies = mapPoliciesForDestination(destination.Destination, info)
+			e.Action.Forward[i].Policies = mapPoliciesForDestination(destination.Destination, info, host)
 		}
 		if e.Mirror != nil {
-			e.Mirror.Forward.Policies = mapPoliciesForDestination(e.Mirror.Forward.Destination, info)
+			e.Mirror.Forward.Policies = mapPoliciesForDestination(e.Mirror.Forward.Destination, info, host)
 		}
+
+		routesWithPolicies = append(routesWithPolicies, e)
 	}
 
-	return nil, nil
+	return routesWithPolicies
 }
 
-func mapPoliciesForDestination(destination envoy.Tags, info *GatewayResourceInfo) map[model.ResourceType]model.Resource {
+func mapPoliciesForDestination(destination envoy.Tags, info GatewayListenerInfo, host GatewayHost) map[model.ResourceType]model.Resource {
 	policies := map[model.ResourceType]model.Resource{}
 
 	for _, policyType := range ConnectionPolicyTypes {
-		if policy := matchConnectionPolicy(info.Host.Policies[policyType], destination); policy != nil {
+		if policy := matchConnectionPolicy(host.Policies[policyType], destination); policy != nil {
 			policies[policyType] = policy
 		}
 	}

@@ -19,12 +19,20 @@ const (
 	KumaSidecarInjectionAnnotation = "kuma.io/sidecar-injection"
 
 	// KumaGatewayAnnotation allows to mark Gateway pod,
-	// inbound listeners won't be generated in that case
+	// inbound listeners won't be generated in that case.
+	// It can be used to mark a pod as providing a builtin gateway.
 	KumaGatewayAnnotation = "kuma.io/gateway"
 
 	// KumaIngressAnnotation allows to mark pod with Kuma Ingress
 	// which is crucial for Multizone communication
 	KumaIngressAnnotation = "kuma.io/ingress"
+
+	// KumaEgressAnnotation allows marking pod with Kuma Egress
+	// which is crucial for Multizone communication
+	KumaEgressAnnotation = "kuma.io/egress"
+
+	// KumaTagsAnnotation holds a JSON representation of desired tags
+	KumaTagsAnnotation = "kuma.io/tags"
 
 	// KumaIngressPublicAddressAnnotation allows to pick public address for Ingress
 	// If not defined, Kuma will try to pick this address from the Ingress Service
@@ -71,20 +79,28 @@ const (
 
 // Annotations that are being automatically set by the Kuma Sidecar Injector.
 const (
-	KumaSidecarInjectedAnnotation                  = "kuma.io/sidecar-injected"
-	KumaIgnoreAnnotation                           = "kuma.io/ignore"
-	KumaSidecarUID                                 = "kuma.io/sidecar-uid"
-	KumaTransparentProxyingAnnotation              = "kuma.io/transparent-proxying"
-	KumaTransparentProxyingInboundPortAnnotation   = "kuma.io/transparent-proxying-inbound-port"
-	KumaTransparentProxyingInboundPortAnnotationV6 = "kuma.io/transparent-proxying-inbound-v6-port"
-	KumaTransparentProxyingOutboundPortAnnotation  = "kuma.io/transparent-proxying-outbound-port"
-	CNCFNetworkAnnotation                          = "k8s.v1.cni.cncf.io/networks"
-	KumaCNI                                        = "kuma-cni"
+	KumaSidecarInjectedAnnotation                      = "kuma.io/sidecar-injected"
+	KumaIgnoreAnnotation                               = "kuma.io/ignore"
+	KumaSidecarUID                                     = "kuma.io/sidecar-uid"
+	KumaEnvoyAdminPort                                 = "kuma.io/envoy-admin-port"
+	KumaTransparentProxyingAnnotation                  = "kuma.io/transparent-proxying"
+	KumaTransparentProxyingInboundPortAnnotation       = "kuma.io/transparent-proxying-inbound-port"
+	KumaTransparentProxyingInboundPortAnnotationV6     = "kuma.io/transparent-proxying-inbound-v6-port"
+	KumaTransparentProxyingOutboundPortAnnotation      = "kuma.io/transparent-proxying-outbound-port"
+	KumaTransparentProxyingReachableServicesAnnotation = "kuma.io/transparent-proxying-reachable-services"
+	CNCFNetworkAnnotation                              = "k8s.v1.cni.cncf.io/networks"
+	KumaCNI                                            = "kuma-cni"
 )
 
 // Annotations related to the gateway
 const (
 	IngressServiceUpstream = "ingress.kubernetes.io/service-upstream"
+)
+
+const (
+	// Used with the KumaGatewayAnnotation to mark a pod as providing a builtin
+	// gateway.
+	AnnotationBuiltin = "builtin"
 )
 
 const (
@@ -107,7 +123,7 @@ func (a Annotations) GetEnabled(key string) (bool, bool, error) {
 	case AnnotationDisabled, AnnotationFalse:
 		return false, true, nil
 	default:
-		return false, true, errors.Errorf("annotation \"%s\" has wrong value \"%s\", available values are: \"enabled\", \"disabled\"", key, value)
+		return false, true, errors.Errorf("annotation \"%s\" has wrong value \"%s\"", key, value)
 	}
 }
 
@@ -118,7 +134,7 @@ func (a Annotations) GetUint32(key string) (uint32, bool, error) {
 	}
 	u, err := strconv.ParseUint(value, 10, 32)
 	if err != nil {
-		return 0, true, err
+		return 0, true, errors.Errorf("failed to parse annotation %q: %s", key, err.Error())
 	}
 	return uint32(u), true, nil
 }
@@ -129,18 +145,6 @@ func (a Annotations) GetString(key string) (string, bool) {
 		return "", false
 	}
 	return value, true
-}
-
-func (a Annotations) GetBool(key string) (bool, bool, error) {
-	value, ok := a[key]
-	if !ok {
-		return false, false, nil
-	}
-	b, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, false, err
-	}
-	return b, true, nil
 }
 
 // GetMap returns map from annotation. Example: "kuma.io/sidecar-env-vars: TEST1=1;TEST2=2"

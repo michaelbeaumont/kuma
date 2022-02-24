@@ -29,6 +29,7 @@ type UniversalCluster struct {
 	deployments    map[string]Deployment
 	defaultTimeout time.Duration
 	defaultRetries int
+	opts           kumaDeploymentOptions
 }
 
 var _ Cluster = &UniversalCluster{}
@@ -40,8 +41,8 @@ func NewUniversalCluster(t *TestingT, name string, verbose bool) *UniversalClust
 		apps:           map[string]*UniversalApp{},
 		verbose:        verbose,
 		deployments:    map[string]Deployment{},
-		defaultRetries: GetDefaultRetries(),
-		defaultTimeout: GetDefaultTimeout(),
+		defaultRetries: Config.DefaultClusterStartupRetries,
+		defaultTimeout: Config.DefaultClusterStartupTimeout,
 	}
 }
 
@@ -82,52 +83,54 @@ func (c *UniversalCluster) Verbose() bool {
 }
 
 func (c *UniversalCluster) DeployKuma(mode core.CpMode, opt ...KumaDeploymentOption) error {
-	var opts kumaDeploymentOptions
-
-	opts.apply(opt...)
-	if opts.installationMode != KumactlInstallationMode {
-		return errors.Errorf("universal clusters only support the '%s' installation mode but got '%s'", KumactlInstallationMode, opts.installationMode)
+	if mode == core.Zone {
+		opt = append([]KumaDeploymentOption{WithEnvs(Config.KumaZoneUniversalEnvVars)}, opt...)
+	} else {
+		opt = append([]KumaDeploymentOption{WithEnvs(Config.KumaUniversalEnvVars)}, opt...)
+	}
+	c.opts.apply(opt...)
+	if c.opts.installationMode != KumactlInstallationMode {
+		return errors.Errorf("universal clusters only support the '%s' installation mode but got '%s'", KumactlInstallationMode, c.opts.installationMode)
 	}
 
 	c.controlplane = NewUniversalControlPlane(c.t, mode, c.name, c, c.verbose)
 
+	env := map[string]string{"KUMA_MODE": mode, "KUMA_DNS_SERVER_PORT": "53"}
+
+	for k, v := range c.opts.env {
+		env[k] = v
+	}
+	if c.opts.globalAddress != "" {
+		env["KUMA_MULTIZONE_ZONE_GLOBAL_ADDRESS"] = c.opts.globalAddress
+	}
+	if c.opts.hdsDisabled {
+		env["KUMA_DP_SERVER_HDS_ENABLED"] = "false"
+	}
+
+	if Config.XDSApiVersion != "" {
+		env["KUMA_BOOTSTRAP_SERVER_API_VERSION"] = Config.XDSApiVersion
+	}
+
+	if Config.CIDR != "" {
+		env["KUMA_DNS_SERVER_CIDR"] = Config.CIDR
+	}
+
 	cmd := []string{"kuma-cp", "run"}
-	env := []string{"KUMA_MODE=" + mode, "KUMA_DNS_SERVER_PORT=53"}
-
-	caps := []string{}
-	for k, v := range opts.env {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
-	}
-	if opts.globalAddress != "" {
-		env = append(env, "KUMA_MULTIZONE_ZONE_GLOBAL_ADDRESS="+opts.globalAddress)
-	}
-	if opts.hdsDisabled {
-		env = append(env, "KUMA_DP_SERVER_HDS_ENABLED=false")
-	}
-
-	if HasApiVersion() {
-		env = append(env, "KUMA_BOOTSTRAP_SERVER_API_VERSION="+GetApiVersion())
-	}
-
-	if opts.isipv6 {
-		env = append(env, fmt.Sprintf("KUMA_DNS_SERVER_CIDR=\"%s\"", cidrIPv6))
-	}
-
 	switch mode {
 	case core.Zone:
-		env = append(env, "KUMA_MULTIZONE_ZONE_NAME="+c.name)
+		env["KUMA_MULTIZONE_ZONE_NAME"] = c.name
 	case core.Global:
-		cmd = append(cmd, "--config-file", confPath)
+		cmd = append(cmd, "--config-file", "/kuma/kuma-cp.conf")
 	}
 
-	app, err := NewUniversalApp(c.t, c.name, AppModeCP, AppModeCP, opts.isipv6, true, caps)
+	app, err := NewUniversalApp(c.t, c.name, AppModeCP, AppModeCP, c.opts.isipv6, true, []string{})
 	if err != nil {
 		return err
 	}
 
 	app.CreateMainApp(env, cmd)
 
-	if opts.runPostgresMigration {
+	if c.opts.runPostgresMigration {
 		if err := runPostgresMigration(app, env); err != nil {
 			return err
 		}
@@ -149,7 +152,7 @@ func (c *UniversalCluster) DeployKuma(mode core.CpMode, opt ...KumaDeploymentOpt
 		return err
 	}
 
-	for name, updateFuncs := range opts.meshUpdateFuncs {
+	for name, updateFuncs := range c.opts.meshUpdateFuncs {
 		for _, f := range updateFuncs {
 			Logf("applying update function to mesh %q", name)
 			err := c.controlplane.kumactl.KumactlUpdateObject("mesh", name,
@@ -164,7 +167,7 @@ func (c *UniversalCluster) DeployKuma(mode core.CpMode, opt ...KumaDeploymentOpt
 		}
 	}
 
-	return nil
+	return c.VerifyKuma()
 }
 
 func (c *UniversalCluster) retrieveAdminToken() (string, error) {
@@ -172,7 +175,7 @@ func (c *UniversalCluster) retrieveAdminToken() (string, error) {
 		DefaultRetries,
 		DefaultTimeout,
 		func() (string, error) {
-			sshApp := NewSshApp(c.verbose, c.apps[AppModeCP].ports["22"], []string{}, []string{"curl",
+			sshApp := NewSshApp(c.verbose, c.apps[AppModeCP].ports["22"], nil, []string{"curl",
 				"--fail", "--show-error",
 				"http://localhost:5681/global-secrets/admin-user-token"})
 			if err := sshApp.Run(); err != nil {
@@ -202,7 +205,7 @@ func (c *UniversalCluster) VerifyKuma() error {
 	return c.controlplane.kumactl.RunKumactl("get", "dataplanes")
 }
 
-func (c *UniversalCluster) DeleteKuma(...KumaDeploymentOption) error {
+func (c *UniversalCluster) DeleteKuma() error {
 	err := c.apps[AppModeCP].Stop()
 	delete(c.apps, AppModeCP)
 	c.controlplane = nil
@@ -233,14 +236,27 @@ func (c *UniversalCluster) DeleteNamespace(namespace string) error {
 func (c *UniversalCluster) CreateDP(app *UniversalApp, name, mesh, ip, dpyaml, token string, builtindns bool, concurrency int) error {
 	cpIp := c.apps[AppModeCP].ip
 	cpAddress := "https://" + net.JoinHostPort(cpIp, "5678")
-	app.CreateDP(token, cpAddress, name, mesh, ip, dpyaml, builtindns, false, concurrency)
+	app.CreateDP(token, cpAddress, name, mesh, ip, dpyaml, builtindns, "", concurrency)
 	return app.dpApp.Start()
 }
 
 func (c *UniversalCluster) CreateZoneIngress(app *UniversalApp, name, ip, dpyaml, token string, builtindns bool) error {
 	cpIp := c.apps[AppModeCP].ip
 	cpAddress := "https://" + net.JoinHostPort(cpIp, "5678")
-	app.CreateDP(token, cpAddress, name, "", ip, dpyaml, builtindns, true, 0)
+	app.CreateDP(token, cpAddress, name, "", ip, dpyaml, builtindns, "ingress", 0)
+	return app.dpApp.Start()
+}
+
+func (c *UniversalCluster) CreateZoneEgress(
+	app *UniversalApp,
+	name, ip, dpYAML, token string,
+	builtinDNS bool,
+) error {
+	cpIp := c.apps[AppModeCP].ip
+	cpAddress := "https://" + net.JoinHostPort(cpIp, "5678")
+
+	app.CreateDP(token, cpAddress, name, "", ip, dpYAML, builtinDNS, "egress", 0)
+
 	return app.dpApp.Start()
 }
 
@@ -319,7 +335,7 @@ func (c *UniversalCluster) DeployApp(opt ...AppDeploymentOption) error {
 	}
 
 	if !opts.proxyOnly {
-		app.CreateMainApp([]string{}, args)
+		app.CreateMainApp(nil, args)
 		err = app.mainApp.Start()
 		if err != nil {
 			return err
@@ -329,7 +345,7 @@ func (c *UniversalCluster) DeployApp(opt ...AppDeploymentOption) error {
 	return nil
 }
 
-func runPostgresMigration(kumaCP *UniversalApp, envVars []string) error {
+func runPostgresMigration(kumaCP *UniversalApp, envVars map[string]string) error {
 	args := []string{
 		"/usr/bin/kuma-cp", "migrate", "up",
 	}
@@ -339,7 +355,7 @@ func runPostgresMigration(kumaCP *UniversalApp, envVars []string) error {
 		return errors.New("missing public port: 22")
 	}
 
-	app := NewSshApp(true, sshPort, envVars, args)
+	app := NewSshApp(kumaCP.verbose, sshPort, envVars, args)
 	if err := app.Run(); err != nil {
 		return errors.Errorf("db migration err: %s\nstderr :%s\nstdout %s", err.Error(), app.Err(), app.Out())
 	}
@@ -364,7 +380,7 @@ func (c *UniversalCluster) Exec(namespace, podName, appname string, cmd ...strin
 	if !ok {
 		return "", "", errors.Errorf("App %s not found", appname)
 	}
-	sshApp := NewSshApp(false, app.ports[sshPort], []string{}, cmd)
+	sshApp := NewSshApp(c.verbose, app.ports[sshPort], nil, cmd)
 	err := sshApp.Run()
 	return sshApp.Out(), sshApp.Err(), err
 }
@@ -382,7 +398,7 @@ func (c *UniversalCluster) ExecWithRetries(namespace, podName, appname string, c
 			if !ok {
 				return "", errors.Errorf("App %s not found", appname)
 			}
-			sshApp := NewSshApp(false, app.ports[sshPort], []string{}, cmd)
+			sshApp := NewSshApp(c.verbose, app.ports[sshPort], nil, cmd)
 			err := sshApp.Run()
 			stdout = sshApp.Out()
 			stderr = sshApp.Err()

@@ -159,6 +159,10 @@ Listeners:
               initialStreamWindowSize: 65536
               maxConcurrentStreams: 100
             httpFilters:
+            - name: envoy.filters.http.local_ratelimit
+              typedConfig:
+                '@type': type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                statPrefix: rate_limit
             - name: gzip-compress
               typedConfig:
                 '@type': type.googleapis.com/envoy.extensions.filters.http.compressor.v3.Compressor
@@ -215,7 +219,7 @@ Routes:
       virtualHosts:
       - domains:
         - echo.example.com
-        name: edge-gateway:HTTPS:8080:echo.example.com
+        name: echo.example.com
         requireTls: ALL
         responseHeadersToAdd:
         - append: false
@@ -226,6 +230,14 @@ Routes:
         - match:
             path: /api
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 20s
             weightedClusters:
               clusters:
               - name: api-service-6b688a06cd66f5c9
@@ -234,6 +246,14 @@ Routes:
         - match:
             prefix: /api/
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 20s
             weightedClusters:
               clusters:
               - name: api-service-6b688a06cd66f5c9
@@ -247,6 +267,14 @@ Routes:
               runtimeFraction:
                 defaultValue:
                   numerator: 1
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 10s
             weightedClusters:
               clusters:
               - name: echo-service-b5c2b60cba392c4e

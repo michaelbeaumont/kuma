@@ -3,11 +3,9 @@ package get_test
 import (
 	"bytes"
 	"context"
-	"path/filepath"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/spf13/cobra"
 
@@ -89,7 +87,7 @@ var _ = Describe("kumactl get global-secrets", func() {
 					ExecuteRootCommand(rootCmd, "global-secrets", given.outputFormat, ""),
 				).To(Succeed())
 
-				Expect(buf.String()).To(MatchGoldenEqual(filepath.Join("testdata", given.goldenFile)))
+				Expect(buf.String()).To(MatchGoldenEqual("testdata", given.goldenFile))
 			},
 			Entry("should support Table output by default", testCase{
 				outputFormat: "",

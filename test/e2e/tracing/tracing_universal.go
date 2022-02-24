@@ -5,7 +5,7 @@ import (
 	"reflect"
 
 	"github.com/gruntwork-io/terratest/modules/retry"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 
@@ -44,11 +44,9 @@ selectors:
 		cluster = NewUniversalCluster(NewTestingT(), Kuma3, Silent)
 
 		err := NewClusterSetup().
-			Install(Kuma(core.Standalone, KumaUniversalDeployOpts...)).
+			Install(Kuma(core.Standalone)).
 			Install(tracing.Install()).
 			Setup(cluster)
-		Expect(err).ToNot(HaveOccurred())
-		err = cluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		testServerToken, err := cluster.GetKuma().GenerateDpToken("default", "test-server")
@@ -66,7 +64,7 @@ selectors:
 		if ShouldSkipCleanup() {
 			return
 		}
-		Expect(cluster.DeleteKuma(KumaUniversalDeployOpts...)).To(Succeed())
+		Expect(cluster.DeleteKuma()).To(Succeed())
 		Expect(cluster.DismissCluster()).To(Succeed())
 	})
 

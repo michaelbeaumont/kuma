@@ -5,8 +5,7 @@ import (
 
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	core_model "github.com/kumahq/kuma/pkg/core/resources/model"
@@ -75,7 +74,7 @@ var _ = Describe("Gateway Route", func() {
 		// for each hostname
 		Entry("should expand route hostnames into virtual hosts",
 			"01-gateway-route.yaml", `
-type: Gateway
+type: MeshGateway
 mesh: default
 name: edge-gateway
 selectors:
@@ -88,7 +87,7 @@ conf:
     tags:
       port: http/8080
 `, `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -116,7 +115,7 @@ conf:
 		// generate a wildcard virtual host.
 		Entry("should create a wildcard virtual host",
 			"02-gateway-route.yaml", `
-type: Gateway
+type: MeshGateway
 mesh: default
 name: edge-gateway
 selectors:
@@ -129,7 +128,7 @@ conf:
     tags:
       port: http/8080
 `, `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -146,7 +145,7 @@ conf:
       - destination:
           kuma.io/service: echo-service
 `, `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service-extra
 selectors:
@@ -172,7 +171,7 @@ conf:
 		// hostnames should be configured on the Gateway.
 		Entry("should match route hostnames on the listener",
 			"03-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -191,7 +190,7 @@ conf:
       - destination:
           kuma.io/service: echo-service
 `, `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service-2
 selectors:
@@ -214,7 +213,7 @@ conf:
 
 		Entry("should create a mirror route",
 			"04-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -242,7 +241,7 @@ conf:
 
 		Entry("should create a redirect route",
 			"05-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -265,7 +264,7 @@ conf:
 
 		Entry("should create a request header rewrite route",
 			"06-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -306,7 +305,7 @@ conf:
 
 		Entry("should create a path prefix match",
 			"07-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -327,7 +326,7 @@ conf:
 
 		Entry("should disambiguate path prefix and exact matches",
 			"08-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -355,7 +354,7 @@ conf:
 
 		Entry("should create a regex prefix match",
 			"09-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -376,7 +375,7 @@ conf:
 
 		Entry("should create a header route match",
 			"10-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -413,7 +412,7 @@ conf:
 
 		Entry("should create a query param route match",
 			"11-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -450,7 +449,7 @@ conf:
 
 		Entry("duplicates routes for repeated matches",
 			"12-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -484,7 +483,7 @@ conf:
 
 		Entry("order path matches by specificity",
 			"13-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -519,7 +518,7 @@ conf:
 
 		Entry("rewrite the host header",
 			"14-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -546,7 +545,7 @@ conf:
 
 		Entry("match timeout policy",
 			"15-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -625,7 +624,7 @@ conf:
 
 		Entry("match circuit breaker policy",
 			"16-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -710,7 +709,7 @@ conf:
 
 		Entry("match health check policy",
 			"17-gateway-route.yaml", `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -798,7 +797,7 @@ tags:
 networking:
   address: httpbin.com:80
 `, `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -830,7 +829,7 @@ networking:
   tls:
     enabled: true
 `, `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -863,7 +862,7 @@ networking:
     tags:
       kuma.io/service: gateway-multihost
 `, `
-type: GatewayRoute
+type: MeshGatewayRoute
 mesh: default
 name: echo-service
 selectors:
@@ -929,6 +928,83 @@ conf:
     idle_timeout: 30s
 `,
 		),
+
+		Entry("match ratelimit policy",
+			"21-gateway-route.yaml", `
+type: MeshGatewayRoute
+mesh: default
+name: echo-service
+selectors:
+- match:
+    kuma.io/service: gateway-default
+conf:
+  http:
+    rules:
+    - matches:
+      - path:
+          match: PREFIX
+          value: /
+      filters:
+      - mirror:
+          percentage: 1
+          backend:
+            destination:
+              kuma.io/service: echo-mirror
+      backends:
+      - destination:
+          kuma.io/service: echo-service
+    - matches:
+      - path:
+          match: PREFIX
+          value: /api
+      backends:
+      - destination:
+          kuma.io/service: api-service
+`, `
+type: RateLimit
+mesh: default
+name: echo-service
+sources:
+- match:
+    kuma.io/service: gateway-default
+destinations:
+- match:
+    kuma.io/service: echo-service
+conf:
+  http:
+    requests: 1
+    interval: 10s
+`, `
+type: RateLimit
+mesh: default
+name: api-service
+sources:
+- match:
+    kuma.io/service: gateway-default
+destinations:
+- match:
+    kuma.io/service: api-service
+conf:
+  http:
+    requests: 1
+    interval: 20s
+`, `
+# This does nothing because rate limits are per-route, not per-cluster.
+type: RateLimit
+mesh: default
+name: echo-mirror
+sources:
+- match:
+    kuma.io/service: gateway-default
+destinations:
+- match:
+    kuma.io/service: echo-mirror
+conf:
+  http:
+    requests: 1
+    interval: 30s
+`,
+		),
 	}
 
 	Context("with a HTTP gateway", func() {
@@ -954,7 +1030,7 @@ conf:
 				// then
 				Expect(snap.Consistent()).To(Succeed())
 			},
-			entries...,
+			entries,
 		)
 	})
 
@@ -980,7 +1056,7 @@ conf:
 					To(matchers.MatchGoldenYAML(path.Join("testdata", "https", goldenFileName)))
 
 			},
-			entries...,
+			entries,
 		)
 	})
 

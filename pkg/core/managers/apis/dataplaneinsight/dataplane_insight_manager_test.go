@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -21,7 +21,6 @@ var _ = Describe("DataplaneInsight Manager", func() {
 		// setup
 		s := memory.NewStore()
 		cfg := &kuma_cp.DataplaneMetrics{
-			Enabled:           true,
 			SubscriptionLimit: 3,
 		}
 		manager := dataplaneinsight.NewDataplaneInsightManager(s, cfg)
@@ -51,11 +50,11 @@ var _ = Describe("DataplaneInsight Manager", func() {
 		Expect(actual.Spec.Subscriptions[2].Id).To(Equal("9"))
 	})
 
-	It("should cleanup subscriptions if disabled", func() {
+	It("should have 0 subscriptions if limit is 0", func() {
 		// setup
 		s := memory.NewStore()
 		cfg := &kuma_cp.DataplaneMetrics{
-			Enabled: false,
+			SubscriptionLimit: 0,
 		}
 		manager := dataplaneinsight.NewDataplaneInsightManager(s, cfg)
 

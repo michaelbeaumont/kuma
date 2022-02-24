@@ -3,11 +3,11 @@ package api_server_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	system_proto "github.com/kumahq/kuma/api/system/v1alpha1"
@@ -43,7 +43,7 @@ var _ = Describe("Zone Overview Endpoints", func() {
 			Expect(err).ToNot(HaveOccurred())
 		}()
 		waitForServer(&client)
-	}, 5)
+	})
 
 	AfterEach(func() {
 		close(stop)
@@ -160,7 +160,7 @@ var _ = Describe("Zone Overview Endpoints", func() {
 
 			// then
 			Expect(response.StatusCode).To(Equal(200))
-			body, err := ioutil.ReadAll(response.Body)
+			body, err := io.ReadAll(response.Body)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(body).To(MatchJSON(zone1Json))
 		})
@@ -172,7 +172,7 @@ var _ = Describe("Zone Overview Endpoints", func() {
 
 			// then
 			Expect(response.StatusCode).To(Equal(200))
-			body, err := ioutil.ReadAll(response.Body)
+			body, err := io.ReadAll(response.Body)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(string(body)).To(MatchJSON(fmt.Sprintf(`{"total": 3, "items": [%s,%s,%s], "next": null}`, zone1Json, zone2Json, zone3Json)))

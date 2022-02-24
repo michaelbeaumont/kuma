@@ -2,14 +2,12 @@ package controllers_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	kube_core "k8s.io/api/core/v1"
@@ -88,7 +86,7 @@ var _ = Describe("PodToDataplane(..)", func() {
 			// given
 			// pod
 			pod := &kube_core.Pod{}
-			bytes, err := ioutil.ReadFile(filepath.Join("testdata", given.pod))
+			bytes, err := os.ReadFile(filepath.Join("testdata", given.pod))
 			Expect(err).ToNot(HaveOccurred())
 			err = yaml.Unmarshal(bytes, pod)
 			Expect(err).ToNot(HaveOccurred())
@@ -96,17 +94,23 @@ var _ = Describe("PodToDataplane(..)", func() {
 			// services for pod
 			services := []*kube_core.Service{}
 			if given.servicesForPod != "" {
-				bytes, err = ioutil.ReadFile(filepath.Join("testdata", given.servicesForPod))
+				bytes, err = os.ReadFile(filepath.Join("testdata", given.servicesForPod))
 				Expect(err).ToNot(HaveOccurred())
 				YAMLs := util_yaml.SplitYAML(string(bytes))
 				services, err = ParseServices(YAMLs)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
+			namespace := kube_core.Namespace{
+				ObjectMeta: kube_meta.ObjectMeta{
+					Name: pod.Namespace,
+				},
+			}
+
 			// other services
 			var serviceGetter kube_client.Reader
 			if given.otherServices != "" {
-				bytes, err = ioutil.ReadFile(filepath.Join("testdata", given.otherServices))
+				bytes, err = os.ReadFile(filepath.Join("testdata", given.otherServices))
 				Expect(err).ToNot(HaveOccurred())
 				YAMLs := util_yaml.SplitYAML(string(bytes))
 				services, err := ParseServices(YAMLs)
@@ -119,7 +123,7 @@ var _ = Describe("PodToDataplane(..)", func() {
 			// other dataplanes
 			var otherDataplanes []*mesh_k8s.Dataplane
 			if given.otherDataplanes != "" {
-				bytes, err = ioutil.ReadFile(filepath.Join("testdata", given.otherDataplanes))
+				bytes, err = os.ReadFile(filepath.Join("testdata", given.otherDataplanes))
 				Expect(err).ToNot(HaveOccurred())
 				YAMLs := util_yaml.SplitYAML(string(bytes))
 				otherDataplanes, err = ParseDataplanes(YAMLs)
@@ -134,16 +138,14 @@ var _ = Describe("PodToDataplane(..)", func() {
 
 			// when
 			dataplane := &mesh_k8s.Dataplane{}
-			err = converter.PodToDataplane(dataplane, pod, services, otherDataplanes)
+			err = converter.PodToDataplane(context.Background(), dataplane, pod, &namespace, services, otherDataplanes)
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
 
-			actual, err := json.Marshal(dataplane)
+			actual, err := yaml.Marshal(dataplane)
 			Expect(err).ToNot(HaveOccurred())
-			expected, err := ioutil.ReadFile(filepath.Join("testdata", given.dataplane))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(actual).To(MatchYAML(expected))
+			Expect(actual).To(MatchGoldenYAML("testdata", given.dataplane))
 		},
 		Entry("01.Pod with 2 Services", testCase{
 			pod:            "01.pod.yaml",
@@ -231,6 +233,18 @@ var _ = Describe("PodToDataplane(..)", func() {
 			servicesForPod: "15.services-for-pod.yaml",
 			dataplane:      "15.dataplane.yaml",
 		}),
+		Entry("16. Pod with Kuma Egress", testCase{
+			pod:            "16.pod.yaml",
+			servicesForPod: "16.services-for-pod.yaml",
+			dataplane:      "16.dataplane.yaml",
+		}),
+		Entry("17. Pod with reachable services", testCase{
+			pod:             "17.pod.yaml",
+			servicesForPod:  "17.services-for-pod.yaml",
+			otherDataplanes: "17.other-dataplanes.yaml",
+			otherServices:   "17.other-services.yaml",
+			dataplane:       "17.dataplane.yaml",
+		}),
 	)
 
 	DescribeTable("should convert Ingress Pod into an Ingress Dataplane YAML version",
@@ -238,13 +252,13 @@ var _ = Describe("PodToDataplane(..)", func() {
 			// given
 			// pod
 			pod := &kube_core.Pod{}
-			bytes, err := ioutil.ReadFile(filepath.Join("testdata", "ingress", given.pod))
+			bytes, err := os.ReadFile(filepath.Join("testdata", "ingress", given.pod))
 			Expect(err).ToNot(HaveOccurred())
 			err = yaml.Unmarshal(bytes, pod)
 			Expect(err).ToNot(HaveOccurred())
 
 			// services for pod
-			bytes, err = ioutil.ReadFile(filepath.Join("testdata", "ingress", given.servicesForPod))
+			bytes, err = os.ReadFile(filepath.Join("testdata", "ingress", given.servicesForPod))
 			Expect(err).ToNot(HaveOccurred())
 			YAMLs := util_yaml.SplitYAML(string(bytes))
 			services, err := ParseServices(YAMLs)
@@ -253,7 +267,7 @@ var _ = Describe("PodToDataplane(..)", func() {
 			// node
 			var nodeGetter kube_client.Reader
 			if given.node != "" {
-				bytes, err = ioutil.ReadFile(filepath.Join("testdata", "ingress", given.node))
+				bytes, err = os.ReadFile(filepath.Join("testdata", "ingress", given.node))
 				Expect(err).ToNot(HaveOccurred())
 				nodeGetter = fakeNodeReader(bytes)
 			}
@@ -266,7 +280,7 @@ var _ = Describe("PodToDataplane(..)", func() {
 
 			// when
 			ingress := &mesh_k8s.ZoneIngress{}
-			err = converter.PodToIngress(ingress, pod, services)
+			err = converter.PodToIngress(context.Background(), ingress, pod, services)
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
@@ -309,6 +323,77 @@ var _ = Describe("PodToDataplane(..)", func() {
 		}),
 	)
 
+	DescribeTable("should convert Egress Pod into an Egress Dataplane YAML version",
+		func(given testCase) {
+			// given
+			// pod
+			pod := &kube_core.Pod{}
+			bytes, err := os.ReadFile(filepath.Join("testdata", "egress", given.pod))
+			Expect(err).ToNot(HaveOccurred())
+			err = yaml.Unmarshal(bytes, pod)
+			Expect(err).ToNot(HaveOccurred())
+
+			// services for pod
+			bytes, err = os.ReadFile(filepath.Join("testdata", "egress", given.servicesForPod))
+			Expect(err).ToNot(HaveOccurred())
+			YAMLs := util_yaml.SplitYAML(string(bytes))
+			services, err := ParseServices(YAMLs)
+			Expect(err).ToNot(HaveOccurred())
+
+			// node
+			var nodeGetter kube_client.Reader
+			if given.node != "" {
+				bytes, err = os.ReadFile(filepath.Join("testdata", "egress", given.node))
+				Expect(err).ToNot(HaveOccurred())
+				nodeGetter = fakeNodeReader(bytes)
+			}
+
+			converter := PodConverter{
+				ServiceGetter: nil,
+				NodeGetter:    nodeGetter,
+				Zone:          "zone-1",
+			}
+
+			// when
+			egress := &mesh_k8s.ZoneEgress{}
+			err = converter.PodToEgress(egress, pod, services)
+
+			// then
+			Expect(err).ToNot(HaveOccurred())
+
+			actual, err := yaml.Marshal(egress)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(actual).To(MatchGoldenYAML(filepath.Join("testdata", "egress", given.dataplane)))
+		},
+		Entry("01. Egress with load balancer service and hostname", testCase{ // AWS use case
+			pod:            "01.pod.yaml",
+			servicesForPod: "01.services-for-pod.yaml",
+			dataplane:      "01.dataplane.yaml",
+		}),
+		Entry("02. Egress with load balancer and ip", testCase{ // GCP use case
+			pod:            "02.pod.yaml",
+			servicesForPod: "02.services-for-pod.yaml",
+			dataplane:      "02.dataplane.yaml",
+		}),
+		Entry("03. Egress with load balancer without public ip", testCase{
+			pod:            "03.pod.yaml",
+			servicesForPod: "03.services-for-pod.yaml",
+			dataplane:      "03.dataplane.yaml",
+		}),
+		Entry("04. Egress with node port external IP", testCase{ // Real deployment use case
+			pod:            "04.pod.yaml",
+			servicesForPod: "04.services-for-pod.yaml",
+			dataplane:      "04.dataplane.yaml",
+			node:           "04.node.yaml",
+		}),
+		Entry("05. Egress with node port internal IP", testCase{ // KIND / Minikube use case
+			pod:            "05.pod.yaml",
+			servicesForPod: "05.services-for-pod.yaml",
+			dataplane:      "05.dataplane.yaml",
+			node:           "05.node.yaml",
+		}),
+	)
+
 	Context("when Dataplane cannot be generated", func() {
 		type testCase struct {
 			pod         string
@@ -325,13 +410,19 @@ var _ = Describe("PodToDataplane(..)", func() {
 				err := yaml.Unmarshal([]byte(given.pod), pod)
 				Expect(err).ToNot(HaveOccurred())
 
+				namespace := kube_core.Namespace{
+					ObjectMeta: kube_meta.ObjectMeta{
+						Name: pod.Namespace,
+					},
+				}
+
 				services, err := ParseServices(given.services)
 				Expect(err).ToNot(HaveOccurred())
 
 				dataplane := &mesh_k8s.Dataplane{}
 
 				// when
-				err = converter.PodToDataplane(dataplane, pod, services, nil)
+				err = converter.PodToDataplane(context.Background(), dataplane, pod, &namespace, services, nil)
 
 				// then
 				Expect(err).To(HaveOccurred())
@@ -378,7 +469,8 @@ var _ = Describe("InboundTagsForService(..)", func() {
 			// given
 			pod := &kube_core.Pod{
 				ObjectMeta: kube_meta.ObjectMeta{
-					Labels: given.podLabels,
+					Namespace: "demo",
+					Labels:    given.podLabels,
 				},
 			}
 			// and
@@ -413,8 +505,11 @@ var _ = Describe("InboundTagsForService(..)", func() {
 			isGateway: false,
 			podLabels: nil,
 			expected: map[string]string{
-				"kuma.io/service":  "example_demo_svc_80",
-				"kuma.io/protocol": "tcp", // we want Kuma's default behavior to be explicit to a user
+				"kuma.io/service":          "example_demo_svc_80",
+				"kuma.io/protocol":         "tcp", // we want Kuma's default behavior to be explicit to a user
+				"k8s.kuma.io/service-name": "example",
+				"k8s.kuma.io/service-port": "80",
+				"k8s.kuma.io/namespace":    "demo",
 			},
 		}),
 		Entry("Pod with labels", testCase{
@@ -424,10 +519,13 @@ var _ = Describe("InboundTagsForService(..)", func() {
 				"version": "0.1",
 			},
 			expected: map[string]string{
-				"app":              "example",
-				"version":          "0.1",
-				"kuma.io/service":  "example_demo_svc_80",
-				"kuma.io/protocol": "tcp", // we want Kuma's default behavior to be explicit to a user
+				"app":                      "example",
+				"version":                  "0.1",
+				"kuma.io/service":          "example_demo_svc_80",
+				"kuma.io/protocol":         "tcp", // we want Kuma's default behavior to be explicit to a user
+				"k8s.kuma.io/service-name": "example",
+				"k8s.kuma.io/service-port": "80",
+				"k8s.kuma.io/namespace":    "demo",
 			},
 		}),
 		Entry("Pod with `service` label", testCase{
@@ -438,10 +536,13 @@ var _ = Describe("InboundTagsForService(..)", func() {
 				"version":         "0.1",
 			},
 			expected: map[string]string{
-				"app":              "example",
-				"version":          "0.1",
-				"kuma.io/service":  "example_demo_svc_80",
-				"kuma.io/protocol": "tcp", // we want Kuma's default behavior to be explicit to a user
+				"app":                      "example",
+				"version":                  "0.1",
+				"kuma.io/service":          "example_demo_svc_80",
+				"kuma.io/protocol":         "tcp", // we want Kuma's default behavior to be explicit to a user
+				"k8s.kuma.io/service-name": "example",
+				"k8s.kuma.io/service-port": "80",
+				"k8s.kuma.io/namespace":    "demo",
 			},
 		}),
 		Entry("Service with a `<port>.service.kuma.io/protocol` annotation and an unknown value", testCase{
@@ -454,10 +555,13 @@ var _ = Describe("InboundTagsForService(..)", func() {
 				"80.service.kuma.io/protocol": "not-yet-supported-protocol",
 			},
 			expected: map[string]string{
-				"app":              "example",
-				"version":          "0.1",
-				"kuma.io/service":  "example_demo_svc_80",
-				"kuma.io/protocol": "not-yet-supported-protocol", // we want Kuma's behavior to be straightforward to a user (just copy annotation value "as is")
+				"app":                      "example",
+				"version":                  "0.1",
+				"kuma.io/service":          "example_demo_svc_80",
+				"kuma.io/protocol":         "not-yet-supported-protocol", // we want Kuma's behavior to be straightforward to a user (just copy annotation value "as is")
+				"k8s.kuma.io/service-name": "example",
+				"k8s.kuma.io/service-port": "80",
+				"k8s.kuma.io/namespace":    "demo",
 			},
 		}),
 		Entry("Service with a `<port>.service.kuma.io/protocol` annotation and a known value", testCase{
@@ -470,10 +574,13 @@ var _ = Describe("InboundTagsForService(..)", func() {
 				"80.service.kuma.io/protocol": "http",
 			},
 			expected: map[string]string{
-				"app":              "example",
-				"version":          "0.1",
-				"kuma.io/service":  "example_demo_svc_80",
-				"kuma.io/protocol": "http",
+				"app":                      "example",
+				"version":                  "0.1",
+				"kuma.io/service":          "example_demo_svc_80",
+				"kuma.io/protocol":         "http",
+				"k8s.kuma.io/service-name": "example",
+				"k8s.kuma.io/service-port": "80",
+				"k8s.kuma.io/namespace":    "demo",
 			},
 		}),
 		Entry("Service with appProtocol and a known value", testCase{
@@ -484,10 +591,13 @@ var _ = Describe("InboundTagsForService(..)", func() {
 			},
 			appProtocol: utilpointer.StringPtr("http"),
 			expected: map[string]string{
-				"app":              "example",
-				"version":          "0.1",
-				"kuma.io/service":  "example_demo_svc_80",
-				"kuma.io/protocol": "http",
+				"app":                      "example",
+				"version":                  "0.1",
+				"kuma.io/service":          "example_demo_svc_80",
+				"kuma.io/protocol":         "http",
+				"k8s.kuma.io/service-name": "example",
+				"k8s.kuma.io/service-port": "80",
+				"k8s.kuma.io/namespace":    "demo",
 			},
 		}),
 		Entry("Inject a zone tag if Zone is set", testCase{
@@ -498,11 +608,14 @@ var _ = Describe("InboundTagsForService(..)", func() {
 				"version": "0.1",
 			},
 			expected: map[string]string{
-				"app":                  "example",
-				"version":              "0.1",
-				mesh_proto.ServiceTag:  "example_demo_svc_80",
-				mesh_proto.ZoneTag:     "zone-1",
-				mesh_proto.ProtocolTag: "tcp",
+				"app":                      "example",
+				"version":                  "0.1",
+				mesh_proto.ServiceTag:      "example_demo_svc_80",
+				mesh_proto.ZoneTag:         "zone-1",
+				mesh_proto.ProtocolTag:     "tcp",
+				"k8s.kuma.io/service-name": "example",
+				"k8s.kuma.io/service-port": "80",
+				"k8s.kuma.io/namespace":    "demo",
 			},
 		}),
 		Entry("Pod with empty labels", testCase{
@@ -512,39 +625,15 @@ var _ = Describe("InboundTagsForService(..)", func() {
 				"version": "",
 			},
 			expected: map[string]string{
-				"app":              "example",
-				"kuma.io/service":  "example_demo_svc_80",
-				"kuma.io/protocol": "tcp",
+				"app":                      "example",
+				"kuma.io/service":          "example_demo_svc_80",
+				"kuma.io/protocol":         "tcp",
+				"k8s.kuma.io/service-name": "example",
+				"k8s.kuma.io/service-port": "80",
+				"k8s.kuma.io/namespace":    "demo",
 			},
 		}),
 	)
-})
-
-var _ = Describe("ServiceTagFor(..)", func() {
-	It("should use Service FQDN", func() {
-		// given
-		svc := &kube_core.Service{
-			ObjectMeta: kube_meta.ObjectMeta{
-				Namespace: "demo",
-				Name:      "example",
-			},
-			Spec: kube_core.ServiceSpec{
-				Ports: []kube_core.ServicePort{
-					{
-						Name: "http",
-						Port: 80,
-						TargetPort: kube_intstr.IntOrString{
-							Type:   kube_intstr.Int,
-							IntVal: 8080,
-						},
-					},
-				},
-			},
-		}
-
-		// then
-		Expect(ServiceTagFor(svc, &svc.Spec.Ports[0])).To(Equal("example_demo_svc_80"))
-	})
 })
 
 var _ = Describe("ProtocolTagFor(..)", func() {

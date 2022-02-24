@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -55,10 +55,8 @@ networking:
 		cluster = clusters.GetCluster(Kuma3)
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, KumaUniversalDeployOpts...)).
+			Install(Kuma(core.Standalone)).
 			Setup(cluster)
-		Expect(err).ToNot(HaveOccurred())
-		err = cluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		demoClientToken, err := cluster.GetKuma().GenerateDpToken("default", "demo-client")
@@ -80,7 +78,7 @@ networking:
 		if ShouldSkipCleanup() {
 			return
 		}
-		err := cluster.DeleteKuma(KumaUniversalDeployOpts...)
+		err := cluster.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		err = cluster.DismissCluster()

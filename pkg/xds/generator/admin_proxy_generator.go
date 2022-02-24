@@ -1,11 +1,13 @@
 package generator
 
 import (
-	"fmt"
+	"strings"
 
-	"github.com/pkg/errors"
+	"github.com/Masterminds/semver/v3"
 
+	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	core_xds "github.com/kumahq/kuma/pkg/core/xds"
+	"github.com/kumahq/kuma/pkg/version"
 	xds_context "github.com/kumahq/kuma/pkg/xds/context"
 	envoy_common "github.com/kumahq/kuma/pkg/xds/envoy"
 	envoy_clusters "github.com/kumahq/kuma/pkg/xds/envoy/clusters"
@@ -28,11 +30,32 @@ var staticTlsEndpointPaths = []*envoy_common.StaticEndpointPath{
 		Path:        "/",
 		RewritePath: "/",
 	},
+	{
+		Path:        "/config_dump",
+		RewritePath: "/config_dump",
+	},
 }
 
 // AdminProxyGenerator generates resources to expose some endpoints of Admin API on public interface.
 // By default, Admin API is exposed only on loopback interface because of security reasons.
 type AdminProxyGenerator struct {
+}
+
+// backwards compatibility with 1.3.x
+var HasCPValidationCtxInBootstrap = func(ver *mesh_proto.Version) (bool, error) {
+	if ver.GetKumaDp().GetVersion() == "" { // mostly for tests but also for very old version of Kuma
+		return false, nil
+	}
+
+	if strings.HasPrefix(ver.GetKumaDp().GetVersion(), version.DevVersionPrefix) {
+		return true, nil
+	}
+
+	semverVer, err := semver.NewVersion(ver.KumaDp.GetVersion())
+	if err != nil {
+		return false, err
+	}
+	return !semverVer.LessThan(semver.MustParse("1.4.0")), nil
 }
 
 func (g AdminProxyGenerator) Generate(ctx xds_context.Context, proxy *core_xds.Proxy) (*core_xds.ResourceSet, error) {
@@ -51,7 +74,7 @@ func (g AdminProxyGenerator) Generate(ctx xds_context.Context, proxy *core_xds.P
 	adminAddress := "127.0.0.1"
 	envoyAdminClusterName := envoy_names.GetEnvoyAdminClusterName()
 	cluster, err := envoy_clusters.NewClusterBuilder(proxy.APIVersion).
-		Configure(envoy_clusters.StaticCluster(envoyAdminClusterName, adminAddress, adminPort)).
+		Configure(envoy_clusters.ProvidedEndpointCluster(envoyAdminClusterName, false, core_xds.Endpoint{Target: adminAddress, Port: adminPort})).
 		Build()
 	if err != nil {
 		return nil, err
@@ -70,20 +93,18 @@ func (g AdminProxyGenerator) Generate(ctx xds_context.Context, proxy *core_xds.P
 				Configure(envoy_listeners.StaticEndpoints(envoy_names.GetAdminListenerName(), staticEndpointPaths)),
 			),
 		}
-		if proxy.Dataplane != nil {
+		hasCpValidationCtx, err := HasCPValidationCtxInBootstrap(proxy.Metadata.Version)
+		if err != nil {
+			return nil, err
+		}
+		if hasCpValidationCtx {
 			for _, se := range staticTlsEndpointPaths {
 				se.ClusterName = envoyAdminClusterName
-
-				token, err := ctx.EnvoyAdminClient.GenerateAPIToken(proxy.Dataplane)
-				if err != nil {
-					return nil, errors.Wrapf(err, "unable to generate the API token")
-				}
-				se.Header = "Authorization"
-				se.HeaderExactMatch = fmt.Sprintf("Bearer %s", token)
 			}
 			filterChains = append(filterChains, envoy_listeners.FilterChain(envoy_listeners.NewFilterChainBuilder(proxy.APIVersion).
 				Configure(envoy_listeners.MatchTransportProtocol("tls")).
-				Configure(envoy_listeners.StaticTlsEndpoints(envoy_names.GetAdminListenerName(), ctx.ControlPlane.AdminProxyKeyPair, staticTlsEndpointPaths)),
+				Configure(envoy_listeners.StaticEndpoints(envoy_names.GetAdminListenerName(), staticTlsEndpointPaths)).
+				Configure(envoy_listeners.ServerSideMTLSWithCP(ctx)),
 			))
 		}
 		listener, err := envoy_listeners.NewListenerBuilder(proxy.APIVersion).
@@ -113,5 +134,10 @@ func (g AdminProxyGenerator) getAddress(proxy *core_xds.Proxy) string {
 	if proxy.Dataplane != nil {
 		return proxy.Dataplane.Spec.GetNetworking().Address
 	}
+
+	if proxy.ZoneEgressProxy != nil {
+		return proxy.ZoneEgressProxy.ZoneEgressResource.Spec.GetNetworking().GetAddress()
+	}
+
 	return proxy.ZoneIngress.Spec.GetNetworking().GetAddress()
 }

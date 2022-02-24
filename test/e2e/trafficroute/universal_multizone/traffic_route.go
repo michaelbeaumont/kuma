@@ -3,18 +3,17 @@ package universal_multizone
 import (
 	"fmt"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 
 	"github.com/kumahq/kuma/pkg/config/core"
-	. "github.com/kumahq/kuma/test/e2e/trafficroute/testutil"
 	. "github.com/kumahq/kuma/test/framework"
+	. "github.com/kumahq/kuma/test/framework/client"
 )
 
-func KumaMultizone() {
-	var meshMTLSOn = func(mesh, localityAware string) string {
-		return fmt.Sprintf(`
+func meshMTLSOn(mesh, localityAware string) string {
+	return fmt.Sprintf(`
 type: Mesh
 name: %s
 mtls:
@@ -25,88 +24,87 @@ mtls:
 routing:
   localityAwareLoadBalancing: %s
 `, mesh, localityAware)
-	}
+}
 
-	const defaultMesh = "default"
+const defaultMesh = "default"
 
-	var global, zone1, zone2 Cluster
-	var optsGlobal, optsZone1, optsZone2 = KumaUniversalDeployOpts, KumaUniversalDeployOpts, KumaUniversalDeployOpts
+var global, zone1, zone2 Cluster
 
-	E2EBeforeSuite(func() {
-		clusters, err := NewUniversalClusters(
-			[]string{Kuma3, Kuma4, Kuma5},
-			Verbose)
-		Expect(err).ToNot(HaveOccurred())
+var _ = E2EBeforeSuite(func() {
+	clusters, err := NewUniversalClusters(
+		[]string{Kuma3, Kuma4, Kuma5},
+		Verbose)
+	Expect(err).ToNot(HaveOccurred())
 
-		// Global
-		global = clusters.GetCluster(Kuma5)
-		err = NewClusterSetup().
-			Install(Kuma(core.Global, optsGlobal...)).
-			Install(YamlUniversal(meshMTLSOn(defaultMesh, "false"))).
-			Setup(global)
-		Expect(err).ToNot(HaveOccurred())
-		err = global.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
+	// Global
+	global = clusters.GetCluster(Kuma5)
+	Expect(NewClusterSetup().
+		Install(Kuma(core.Global)).
+		Install(YamlUniversal(meshMTLSOn(defaultMesh, "false"))).
+		Setup(global)).To(Succeed())
 
-		globalCP := global.GetKuma()
+	E2EDeferCleanup(global.DismissCluster)
 
-		testServerToken, err := globalCP.GenerateDpToken(defaultMesh, "test-server")
-		Expect(err).ToNot(HaveOccurred())
-		anotherTestServerToken, err := globalCP.GenerateDpToken(defaultMesh, "another-test-server")
-		Expect(err).ToNot(HaveOccurred())
-		demoClientToken, err := globalCP.GenerateDpToken(defaultMesh, "demo-client")
-		Expect(err).ToNot(HaveOccurred())
+	globalCP := global.GetKuma()
 
-		// Cluster 1
-		zone1 = clusters.GetCluster(Kuma3)
-		optsZone1 = append(optsZone1, WithGlobalAddress(globalCP.GetKDSServerAddress()))
-		ingressTokenKuma3, err := globalCP.GenerateZoneIngressToken(Kuma3)
-		Expect(err).ToNot(HaveOccurred())
+	testServerToken, err := globalCP.GenerateDpToken(defaultMesh, "test-server")
+	Expect(err).ToNot(HaveOccurred())
+	anotherTestServerToken, err := globalCP.GenerateDpToken(defaultMesh, "another-test-server")
+	Expect(err).ToNot(HaveOccurred())
+	demoClientToken, err := globalCP.GenerateDpToken(defaultMesh, "demo-client")
+	Expect(err).ToNot(HaveOccurred())
 
-		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone1...)).
-			Install(DemoClientUniversal(AppModeDemoClient, defaultMesh, demoClientToken, WithTransparentProxy(true), WithConcurrency(8))).
-			Install(IngressUniversal(ingressTokenKuma3)).
-			Install(TestServerUniversal("dp-echo-1", defaultMesh, testServerToken,
-				WithArgs([]string{"echo", "--instance", "echo-v1"}),
-				WithServiceVersion("v1"),
-			)).
-			Setup(zone1)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone1.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
+	// Cluster 1
+	zone1 = clusters.GetCluster(Kuma3)
+	ingressTokenKuma3, err := globalCP.GenerateZoneIngressToken(Kuma3)
+	Expect(err).ToNot(HaveOccurred())
 
-		// Cluster 2
-		zone2 = clusters.GetCluster(Kuma4)
-		optsZone2 = append(optsZone2, WithGlobalAddress(globalCP.GetKDSServerAddress()))
-		ingressTokenKuma4, err := globalCP.GenerateZoneIngressToken(Kuma4)
-		Expect(err).ToNot(HaveOccurred())
+	Expect(NewClusterSetup().
+		Install(Kuma(core.Zone,
+			WithGlobalAddress(globalCP.GetKDSServerAddress()),
+		)).
+		Install(DemoClientUniversal(AppModeDemoClient, defaultMesh, demoClientToken, WithTransparentProxy(true), WithConcurrency(8))).
+		Install(IngressUniversal(ingressTokenKuma3)).
+		Install(TestServerUniversal("dp-echo-1", defaultMesh, testServerToken,
+			WithArgs([]string{"echo", "--instance", "echo-v1"}),
+			WithServiceVersion("v1"),
+		)).
+		Setup(zone1)).To(Succeed())
 
-		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone2...)).
-			Install(TestServerUniversal("dp-echo-2", defaultMesh, testServerToken,
-				WithArgs([]string{"echo", "--instance", "echo-v2"}),
-				WithServiceVersion("v2"),
-			)).
-			Install(TestServerUniversal("dp-echo-3", defaultMesh, testServerToken,
-				WithArgs([]string{"echo", "--instance", "echo-v3"}),
-				WithServiceVersion("v3"),
-			)).
-			Install(TestServerUniversal("dp-echo-4", defaultMesh, testServerToken,
-				WithArgs([]string{"echo", "--instance", "echo-v4"}),
-				WithServiceVersion("v4"),
-			)).
-			Install(TestServerUniversal("dp-another-test", defaultMesh, anotherTestServerToken,
-				WithArgs([]string{"echo", "--instance", "another-test-server"}),
-				WithServiceName("another-test-server"),
-			)).
-			Install(IngressUniversal(ingressTokenKuma4)).
-			Setup(zone2)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone2.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
-	})
+	E2EDeferCleanup(zone1.DismissCluster)
 
+	// Cluster 2
+	zone2 = clusters.GetCluster(Kuma4)
+	ingressTokenKuma4, err := globalCP.GenerateZoneIngressToken(Kuma4)
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(NewClusterSetup().
+		Install(Kuma(core.Zone,
+			WithGlobalAddress(globalCP.GetKDSServerAddress()),
+		)).
+		Install(TestServerUniversal("dp-echo-2", defaultMesh, testServerToken,
+			WithArgs([]string{"echo", "--instance", "echo-v2"}),
+			WithServiceVersion("v2"),
+		)).
+		Install(TestServerUniversal("dp-echo-3", defaultMesh, testServerToken,
+			WithArgs([]string{"echo", "--instance", "echo-v3"}),
+			WithServiceVersion("v3"),
+		)).
+		Install(TestServerUniversal("dp-echo-4", defaultMesh, testServerToken,
+			WithArgs([]string{"echo", "--instance", "echo-v4"}),
+			WithServiceVersion("v4"),
+		)).
+		Install(TestServerUniversal("dp-another-test", defaultMesh, anotherTestServerToken,
+			WithArgs([]string{"echo", "--instance", "another-test-server"}),
+			WithServiceName("another-test-server"),
+		)).
+		Install(IngressUniversal(ingressTokenKuma4)).
+		Setup(zone2)).To(Succeed())
+
+	E2EDeferCleanup(zone2.DismissCluster)
+})
+
+func KumaMultizone() {
 	E2EAfterEach(func() {
 		// remove all TrafficRoutes
 		items, err := global.GetKumactlOptions().KumactlList("traffic-routes", "default")
@@ -121,17 +119,6 @@ routing:
 
 		// reapply Mesh with localityawareloadbalancing off
 		YamlUniversal(meshMTLSOn(defaultMesh, "false"))
-	})
-
-	E2EAfterSuite(func() {
-		Expect(zone1.DeleteKuma(optsZone1...)).To(Succeed())
-		Expect(zone1.DismissCluster()).To(Succeed())
-
-		Expect(zone2.DeleteKuma(optsZone2...)).To(Succeed())
-		Expect(zone2.DismissCluster()).To(Succeed())
-
-		Expect(global.DeleteKuma(optsGlobal...)).To(Succeed())
-		Expect(global.DismissCluster()).To(Succeed())
 	})
 
 	It("should access all instances of the service", func() {
@@ -240,8 +227,8 @@ conf:
 		}, "30s", "500ms").Should(
 			And(
 				HaveLen(2),
-				HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), ApproximatelyEqual(v1Weight, 10)),
-				HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), ApproximatelyEqual(v2Weight, 10)),
+				HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), BeNumerically("~", v1Weight, 10)),
+				HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), BeNumerically("~", v2Weight, 10)),
 			),
 		)
 	})
@@ -351,8 +338,8 @@ conf:
 			}, "30s", "500ms").Should(
 				And(
 					HaveLen(2),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), ApproximatelyEqual(5, 1)),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), ApproximatelyEqual(5, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), BeNumerically("~", 5, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), BeNumerically("~", 5, 1)),
 				),
 			)
 
@@ -361,8 +348,8 @@ conf:
 			}, "30s", "500ms").Should(
 				And(
 					HaveLen(2),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), ApproximatelyEqual(2, 1)),
-					HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), ApproximatelyEqual(8, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), BeNumerically("~", 2, 1)),
+					HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), BeNumerically("~", 8, 1)),
 				),
 			)
 		})
@@ -380,10 +367,10 @@ conf:
 					HaveKeyWithValue(MatchRegexp(`.*echo-v3.*`), Not(BeNil())),
 					HaveKeyWithValue(MatchRegexp(`.*echo-v4.*`), Not(BeNil())),
 					// todo(jakubdyszkiewicz) uncomment when https://github.com/kumahq/kuma/issues/2563 is fixed
-					// HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), ApproximatelyEqual(10, 1)),
-					// HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), ApproximatelyEqual(10, 1)),
-					// HaveKeyWithValue(MatchRegexp(`.*echo-v3.*`), ApproximatelyEqual(10, 1)),
-					// HaveKeyWithValue(MatchRegexp(`.*echo-v4.*`), ApproximatelyEqual(10, 1)),
+					// HaveKeyWithValue(MatchRegexp(`.*echo-v1.*`), BeNumerically("~", 10, 1)),
+					// HaveKeyWithValue(MatchRegexp(`.*echo-v2.*`), BeNumerically("~", 10, 1)),
+					// HaveKeyWithValue(MatchRegexp(`.*echo-v3.*`), BeNumerically("~", 10, 1)),
+					// HaveKeyWithValue(MatchRegexp(`.*echo-v4.*`), BeNumerically("~", 10, 1)),
 				),
 			)
 		})

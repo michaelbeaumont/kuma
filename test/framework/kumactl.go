@@ -3,7 +3,6 @@ package framework
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/url"
 	"os"
 
@@ -28,19 +27,11 @@ type KumactlOptions struct {
 }
 
 func NewKumactlOptions(t testing.TestingT, cpname string, verbose bool) (*KumactlOptions, error) {
-	kumactl := GetKumactlBin()
-
-	_, err := os.Stat(kumactl)
-	if kumactl == "" || os.IsNotExist(err) {
-		return nil, errors.Wrapf(err, "unable to find kumactl, please supply a valid KUMACTLBIN environment variable")
-	}
-
 	configPath := os.ExpandEnv(fmt.Sprintf(defaultKumactlConfig, cpname))
-
 	return &KumactlOptions{
 		t:          t,
 		CPName:     cpname,
-		Kumactl:    kumactl,
+		Kumactl:    Config.KumactlBin,
 		ConfigPath: configPath,
 		Verbose:    verbose,
 		Env:        map[string]string{},
@@ -126,7 +117,7 @@ func (k *KumactlOptions) KumactlApplyFromString(configData string) error {
 func storeConfigToTempFile(name string, configData string) (string, error) {
 	escapedTestName := url.PathEscape(name)
 
-	tmpfile, err := ioutil.TempFile("", escapedTestName)
+	tmpfile, err := os.CreateTemp("", escapedTestName)
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +139,7 @@ func (k *KumactlOptions) KumactlInstallCP(mode string, args ...string) (string, 
 		cmd = append(cmd, "--zone", k.CPName)
 		fallthrough
 	case core.Global:
-		if !UseLoadBalancer() {
+		if !Config.UseLoadBalancer {
 			cmd = append(cmd, "--use-node-port")
 		}
 	}
@@ -216,7 +207,7 @@ func (k *KumactlOptions) KumactlUpdateObject(
 
 	resource, err := rest.UnmarshallToCore([]byte(out))
 	if err != nil {
-		return errors.Wrapf(err, "failed to unmarshal %q object %q", typeName, objectName)
+		return errors.Wrapf(err, "failed to unmarshal %q object %q: %q", typeName, objectName, out)
 	}
 
 	updated := rest.NewFromModel(update(resource))

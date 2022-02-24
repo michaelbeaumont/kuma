@@ -102,8 +102,40 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req kube_ctrl.Request) (k
 		return kube_ctrl.Result{}, nil
 	}
 
+	// for Pods marked with egress annotation special type of Dataplane will be injected
+	egressEnabled, egressExist, err := metadata.Annotations(pod.Annotations).GetEnabled(metadata.KumaEgressAnnotation)
+	if err != nil {
+		return kube_ctrl.Result{}, err
+	}
+	if egressExist && egressEnabled {
+		if pod.Namespace != r.SystemNamespace {
+			return kube_ctrl.Result{}, errors.Errorf("Egress can only be deployed in system namespace %q", r.SystemNamespace)
+		}
+		services, err := r.findMatchingServices(ctx, pod)
+		if err != nil {
+			return kube_ctrl.Result{}, err
+		}
+		err = r.createOrUpdateEgress(ctx, pod, services)
+		if err != nil {
+			return kube_ctrl.Result{}, err
+		}
+
+		return kube_ctrl.Result{}, nil
+	}
+
+	ns := kube_core.Namespace{}
+	if err := r.Client.Get(ctx, kube_types.NamespacedName{Name: pod.Namespace}, &ns); err != nil {
+		return kube_ctrl.Result{}, errors.Wrap(err, "unable to get Namespace for Pod")
+	}
+
+	// If we are using a builtin gateway, we want to generate a builtin gateway
+	// dataplane.
+	if name, _ := metadata.Annotations(pod.Annotations).GetString(metadata.KumaGatewayAnnotation); name == metadata.AnnotationBuiltin {
+		return kube_ctrl.Result{}, r.createorUpdateBuiltinGatewayDataplane(ctx, pod, &ns)
+	}
+
 	// only Pods with injected Kuma need a Dataplane descriptor
-	injected, exist, err := metadata.Annotations(pod.Annotations).GetBool(metadata.KumaSidecarInjectedAnnotation)
+	injected, exist, err := metadata.Annotations(pod.Annotations).GetEnabled(metadata.KumaSidecarInjectedAnnotation)
 	if err != nil {
 		return kube_ctrl.Result{}, err
 	}
@@ -116,14 +148,14 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req kube_ctrl.Request) (k
 		return kube_ctrl.Result{}, err
 	}
 
-	others, err := r.findOtherDataplanes(ctx, pod)
+	others, err := r.findOtherDataplanes(ctx, pod, &ns)
 	if err != nil {
 		return kube_ctrl.Result{}, err
 	}
 
 	r.Log.WithValues("req", req).V(1).Info("other dataplanes", "others", others)
 
-	if err := r.createOrUpdateDataplane(ctx, pod, services, others); err != nil {
+	if err := r.createOrUpdateDataplane(ctx, pod, &ns, services, others); err != nil {
 		return kube_ctrl.Result{}, err
 	}
 
@@ -162,7 +194,7 @@ func (r *PodReconciler) findMatchingServices(ctx context.Context, pod *kube_core
 	return matchingServices, nil
 }
 
-func (r *PodReconciler) findOtherDataplanes(ctx context.Context, pod *kube_core.Pod) ([]*mesh_k8s.Dataplane, error) {
+func (r *PodReconciler) findOtherDataplanes(ctx context.Context, pod *kube_core.Pod, ns *kube_core.Namespace) ([]*mesh_k8s.Dataplane, error) {
 	// List all Dataplanes
 	allDataplanes := &mesh_k8s.DataplaneList{}
 	if err := r.List(ctx, allDataplanes); err != nil {
@@ -172,7 +204,7 @@ func (r *PodReconciler) findOtherDataplanes(ctx context.Context, pod *kube_core.
 	}
 
 	// only consider Dataplanes in the same Mesh as Pod
-	mesh := util_k8s.MeshFor(pod)
+	mesh := util_k8s.MeshOf(pod, ns)
 	otherDataplanes := make([]*mesh_k8s.Dataplane, 0)
 	for i := range allDataplanes.Items {
 		dataplane := allDataplanes.Items[i]
@@ -181,7 +213,7 @@ func (r *PodReconciler) findOtherDataplanes(ctx context.Context, pod *kube_core.
 			converterLog.Error(err, "failed to parse Dataplane", "dataplane", dataplane.Spec)
 			continue // one invalid Dataplane definition should not break the entire mesh
 		}
-		if dataplane.Mesh == mesh || dp.Spec.IsIngress() {
+		if dataplane.Mesh == mesh {
 			otherDataplanes = append(otherDataplanes, &dataplane)
 		}
 	}
@@ -192,6 +224,7 @@ func (r *PodReconciler) findOtherDataplanes(ctx context.Context, pod *kube_core.
 func (r *PodReconciler) createOrUpdateDataplane(
 	ctx context.Context,
 	pod *kube_core.Pod,
+	ns *kube_core.Namespace,
 	services []*kube_core.Service,
 	others []*mesh_k8s.Dataplane,
 ) error {
@@ -202,7 +235,7 @@ func (r *PodReconciler) createOrUpdateDataplane(
 		},
 	}
 	operationResult, err := kube_controllerutil.CreateOrUpdate(ctx, r.Client, dataplane, func() error {
-		if err := r.PodConverter.PodToDataplane(dataplane, pod, services, others); err != nil {
+		if err := r.PodConverter.PodToDataplane(ctx, dataplane, pod, ns, services, others); err != nil {
 			return errors.Wrap(err, "unable to translate a Pod into a Dataplane")
 		}
 		if err := kube_controllerutil.SetControllerReference(pod, dataplane, r.Scheme); err != nil {
@@ -234,7 +267,7 @@ func (r *PodReconciler) createOrUpdateIngress(ctx context.Context, pod *kube_cor
 		Mesh: model.NoMesh,
 	}
 	operationResult, err := kube_controllerutil.CreateOrUpdate(ctx, r.Client, ingress, func() error {
-		if err := r.PodConverter.PodToIngress(ingress, pod, services); err != nil {
+		if err := r.PodConverter.PodToIngress(ctx, ingress, pod, services); err != nil {
 			return errors.Wrap(err, "unable to translate a Pod into a Ingress")
 		}
 		if err := kube_controllerutil.SetControllerReference(pod, ingress, r.Scheme); err != nil {
@@ -253,6 +286,38 @@ func (r *PodReconciler) createOrUpdateIngress(ctx context.Context, pod *kube_cor
 		r.EventRecorder.Eventf(pod, kube_core.EventTypeNormal, CreatedKumaDataplaneReason, "Created Kuma Ingress: %s", pod.Name)
 	case kube_controllerutil.OperationResultUpdated:
 		r.EventRecorder.Eventf(pod, kube_core.EventTypeNormal, UpdatedKumaDataplaneReason, "Updated Kuma Ingress: %s", pod.Name)
+	}
+	return nil
+}
+
+func (r *PodReconciler) createOrUpdateEgress(ctx context.Context, pod *kube_core.Pod, services []*kube_core.Service) error {
+	egress := &mesh_k8s.ZoneEgress{
+		ObjectMeta: kube_meta.ObjectMeta{
+			Namespace: pod.Namespace,
+			Name:      pod.Name,
+		},
+		Mesh: model.NoMesh,
+	}
+	operationResult, err := kube_controllerutil.CreateOrUpdate(ctx, r.Client, egress, func() error {
+		if err := r.PodConverter.PodToEgress(egress, pod, services); err != nil {
+			return errors.Wrap(err, "unable to translate a Pod into a Egress")
+		}
+		if err := kube_controllerutil.SetControllerReference(pod, egress, r.Scheme); err != nil {
+			return errors.Wrap(err, "unable to set Egress's controller reference to Pod")
+		}
+		return nil
+	})
+	if err != nil {
+		log := r.Log.WithValues("pod", kube_types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name})
+		log.Error(err, "unable to create/update Egress", "operationResult", operationResult)
+		r.EventRecorder.Eventf(pod, kube_core.EventTypeWarning, FailedToGenerateKumaDataplaneReason, "Failed to generate Kuma Egress: %s", err.Error())
+		return err
+	}
+	switch operationResult {
+	case kube_controllerutil.OperationResultCreated:
+		r.EventRecorder.Eventf(pod, kube_core.EventTypeNormal, CreatedKumaDataplaneReason, "Created Kuma Egress: %s", pod.Name)
+	case kube_controllerutil.OperationResultUpdated:
+		r.EventRecorder.Eventf(pod, kube_core.EventTypeNormal, UpdatedKumaDataplaneReason, "Updated Kuma Egress: %s", pod.Name)
 	}
 	return nil
 }

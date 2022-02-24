@@ -1,7 +1,7 @@
 package k8s
 
 import (
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
@@ -17,8 +17,9 @@ var IgnoredTypes = map[model.ResourceType]bool{
 	system.GlobalSecretType:     true,
 	system.ConfigType:           true,
 	mesh.ZoneIngressInsightType: true, // uses DataplaneInsight under the hood
-	mesh.GatewayType:            true, // Gateway is only in Universal ATM.
-	mesh.GatewayRouteType:       true, // GatewayRoute is only in Universal ATM.
+	mesh.ZoneEgressInsightType:  true, // uses DataplaneInsight under the hood
+	mesh.MeshGatewayType:        true, // Gateway is only in Universal ATM.
+	mesh.MeshGatewayRouteType:   true, // GatewayRoute is only in Universal ATM.
 }
 
 var _ = Describe("Consistent Kind Types", func() {

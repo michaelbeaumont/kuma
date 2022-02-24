@@ -2,12 +2,12 @@ package api_server_test
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	config "github.com/kumahq/kuma/pkg/config/api-server"
@@ -60,7 +60,7 @@ var _ = Describe("Index Endpoints", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// then
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		Expect(err).ToNot(HaveOccurred())
 
 		hostname, err := os.Hostname()
@@ -72,7 +72,8 @@ var _ = Describe("Index Endpoints", func() {
 			"tagline": "Kuma",
 			"version": "1.2.3",
 			"instanceId": "instance-id",
-			"clusterId": "cluster-id"
+			"clusterId": "cluster-id",
+			"gui": "The gui is available at /gui"
 		}`, hostname)
 
 		Expect(body).To(MatchJSON(expected))

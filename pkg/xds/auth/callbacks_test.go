@@ -6,7 +6,7 @@ import (
 	envoy_core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_sd "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	envoy_server "github.com/envoyproxy/go-control-plane/pkg/server/v3"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/metadata"
@@ -39,6 +39,11 @@ func (t *testAuthenticator) Authenticate(_ context.Context, resource core_model.
 			return nil
 		}
 	case *core_mesh.ZoneIngressResource:
+		t.zoneCallCounter++
+		if credential == "zone pass" {
+			return nil
+		}
+	case *core_mesh.ZoneEgressResource:
 		t.zoneCallCounter++
 		if credential == "zone pass" {
 			return nil
@@ -91,6 +96,19 @@ var _ = Describe("Auth Callbacks", func() {
 		},
 	}
 
+	zoneEgress := &core_mesh.ZoneEgressResource{
+		Meta: &test_model.ResourceMeta{
+			Name: "egress",
+			Mesh: core_model.NoMesh,
+		},
+		Spec: &mesh_proto.ZoneEgress{
+			Networking: &mesh_proto.ZoneEgress_Networking{
+				Address: "1.1.1.1",
+				Port:    10002,
+			},
+		},
+	}
+
 	BeforeEach(func() {
 		memStore := memory.NewStore()
 		resManager = core_manager.NewResourceManager(memStore)
@@ -102,6 +120,8 @@ var _ = Describe("Auth Callbacks", func() {
 		err = resManager.Create(context.Background(), dpRes, core_store.CreateByKey("web-01", "default"))
 		Expect(err).ToNot(HaveOccurred())
 		err = resManager.Create(context.Background(), zoneIngress, core_store.CreateBy(core_model.MetaToResourceKey(zoneIngress.GetMeta())))
+		Expect(err).ToNot(HaveOccurred())
+		err = resManager.Create(context.Background(), zoneEgress, core_store.CreateBy(core_model.MetaToResourceKey(zoneEgress.GetMeta())))
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -266,6 +286,45 @@ var _ = Describe("Auth Callbacks", func() {
 						"dataplane.proxyType": {
 							Kind: &structpb.Value_StringValue{
 								StringValue: "ingress",
+							},
+						},
+					},
+				},
+			},
+		})
+
+		// then
+		Expect(err).ToNot(HaveOccurred())
+		Expect(testAuth.zoneCallCounter).To(Equal(1))
+
+		// when send second request that is already authenticated
+		err = callbacks.OnStreamRequest(streamID, &envoy_sd.DiscoveryRequest{})
+
+		// then auth is called only once
+		Expect(err).ToNot(HaveOccurred())
+		Expect(testAuth.zoneCallCounter).To(Equal(1))
+	})
+
+	It("should authenticate egress", func() {
+		// given
+		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{"authorization": "zone pass"}))
+		streamID := int64(1)
+
+		// when
+		err := callbacks.OnStreamOpen(ctx, streamID, "")
+
+		// then
+		Expect(err).ToNot(HaveOccurred())
+
+		// when
+		err = callbacks.OnStreamRequest(streamID, &envoy_sd.DiscoveryRequest{
+			Node: &envoy_core.Node{
+				Id: ".egress",
+				Metadata: &structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"dataplane.proxyType": {
+							Kind: &structpb.Value_StringValue{
+								StringValue: "egress",
 							},
 						},
 					},

@@ -2,7 +2,6 @@ package framework
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/gruntwork-io/terratest/modules/k8s"
@@ -29,25 +28,8 @@ func NewK8sClusters(clusterNames []string, verbose bool) (Clusters, error) {
 
 	clusters := map[string]*K8sCluster{}
 
-	for i, name := range clusterNames {
-		clusters[name] = &K8sCluster{
-			t:                   t,
-			name:                name,
-			kubeconfig:          os.ExpandEnv(fmt.Sprintf(defaultKubeConfigPathPattern, name)),
-			loPort:              uint32(kumaCPAPIPortFwdBase + i*1000),
-			hiPort:              uint32(kumaCPAPIPortFwdBase + (i+1)*1000 - 1),
-			forwardedPortsChans: map[uint32]chan struct{}{},
-			verbose:             verbose,
-			deployments:         map[string]Deployment{},
-			defaultTimeout:      GetDefaultTimeout(),
-			defaultRetries:      GetDefaultRetries(),
-		}
-
-		var err error
-		clusters[name].clientset, err = k8s.GetKubernetesClientFromOptionsE(t, clusters[name].GetKubectlOptions())
-		if err != nil {
-			return nil, errors.Wrapf(err, "error in getting access to K8S")
-		}
+	for _, name := range clusterNames {
+		clusters[name] = NewK8sCluster(t, name, verbose)
 	}
 
 	return &K8sClusters{
@@ -142,11 +124,11 @@ func (cs *K8sClusters) VerifyKuma() error {
 	return nil
 }
 
-func (cs *K8sClusters) DeleteKuma(opt ...KumaDeploymentOption) error {
+func (cs *K8sClusters) DeleteKuma() error {
 	failed := []string{}
 
 	for name, c := range cs.clusters {
-		if err := c.DeleteKuma(opt...); err != nil {
+		if err := c.DeleteKuma(); err != nil {
 			fmt.Printf("Delete Kuma on %s failed", name)
 			failed = append(failed, name)
 		}

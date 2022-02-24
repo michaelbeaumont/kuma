@@ -2,6 +2,8 @@ package util
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	envoy_sd "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	envoy_types "github.com/envoyproxy/go-control-plane/pkg/cache/types"
@@ -34,11 +36,16 @@ func ToEnvoyResources(rlist model.ResourceList) ([]envoy_types.Resource, error) 
 		}
 		rv = append(rv, &mesh_proto.KumaResource{
 			Meta: &mesh_proto.KumaResource_Meta{
-				Name:             r.GetMeta().GetName(),
-				Mesh:             r.GetMeta().GetMesh(),
-				CreationTime:     util_proto.MustTimestampProto(r.GetMeta().GetCreationTime()),
-				ModificationTime: util_proto.MustTimestampProto(r.GetMeta().GetModificationTime()),
-				Version:          r.GetMeta().GetVersion(),
+				Name: r.GetMeta().GetName(),
+				Mesh: r.GetMeta().GetMesh(),
+				// KDS ResourceMeta only contains name and mesh.
+				// The rest is managed by the receiver of resources anyways. See ResourceSyncer#Sync
+				//
+				// backwards compatibility
+				// Right now we send creation and modification time because the old versions of Kuma CP expects them to be present.
+				CreationTime:     util_proto.MustTimestampProto(time.Unix(0, 0)),
+				ModificationTime: util_proto.MustTimestampProto(time.Unix(0, 0)),
+				Version:          "",
 			},
 			Spec: pbany,
 		})
@@ -64,6 +71,16 @@ func AddSuffixToNames(rs []model.Resource, suffix string) {
 	}
 }
 
+func ResourceNameHasAtLeastOneOfPrefixes(resName string, prefixes ...string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(resName, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func ZoneTag(r model.Resource) string {
 	switch res := r.GetSpec().(type) {
 	case *mesh_proto.Dataplane:
@@ -72,6 +89,8 @@ func ZoneTag(r model.Resource) string {
 		}
 		return res.GetNetworking().GetInbound()[0].GetTags()[mesh_proto.ZoneTag]
 	case *mesh_proto.ZoneIngress:
+		return res.GetZone()
+	case *mesh_proto.ZoneEgress:
 		return res.GetZone()
 	default:
 		return ""

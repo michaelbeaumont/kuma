@@ -7,22 +7,25 @@ import (
 )
 
 type DeploymentOpts struct {
-	Name            string
-	Namespace       string
-	Mesh            string
-	WithStatefulSet bool
-	ServiceAccount  string
-	Args            []string
-	Replicas        int32
+	Name              string
+	Namespace         string
+	Mesh              string
+	ReachableServices []string
+	WithStatefulSet   bool
+	ServiceAccount    string
+	Args              []string
+	Replicas          int32
+	WaitingToBeReady  bool
 }
 
 func DefaultDeploymentOpts() DeploymentOpts {
 	return DeploymentOpts{
-		Mesh:      "default",
-		Args:      []string{},
-		Name:      "test-server",
-		Namespace: framework.TestNamespace,
-		Replicas:  1,
+		Mesh:             "default",
+		Args:             []string{},
+		Name:             "test-server",
+		Namespace:        framework.TestNamespace,
+		Replicas:         1,
+		WaitingToBeReady: true,
 	}
 }
 
@@ -37,6 +40,12 @@ func WithMesh(mesh string) DeploymentOptsFn {
 func WithName(name string) DeploymentOptsFn {
 	return func(opts *DeploymentOpts) {
 		opts.Name = name
+	}
+}
+
+func WithReachableServices(services ...string) DeploymentOptsFn {
+	return func(opts *DeploymentOpts) {
+		opts.ReachableServices = services
 	}
 }
 
@@ -61,6 +70,12 @@ func WithStatefulSet(apply bool) DeploymentOptsFn {
 func WithServiceAccount(serviceAccountName string) DeploymentOptsFn {
 	return func(opts *DeploymentOpts) {
 		opts.ServiceAccount = serviceAccountName
+	}
+}
+
+func WithoutWaitingToBeReady() DeploymentOptsFn {
+	return func(opts *DeploymentOpts) {
+		opts.WaitingToBeReady = false
 	}
 }
 

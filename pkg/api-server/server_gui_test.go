@@ -2,13 +2,13 @@ package api_server_test
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	config "github.com/kumahq/kuma/pkg/config/api-server"
@@ -68,14 +68,14 @@ var _ = Describe("GUI Server", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// when
-			received, err := ioutil.ReadAll(resp.Body)
+			received, err := io.ReadAll(resp.Body)
 
 			// then
 			Expect(resp.Body.Close()).To(Succeed())
 			Expect(err).ToNot(HaveOccurred())
 
 			// when
-			fileContent, err := ioutil.ReadFile(filepath.Join("..", "..", "app", "kuma-ui", "pkg", "resources", "data", given.expectedFile))
+			fileContent, err := os.ReadFile(filepath.Join("..", "..", "app", "kuma-ui", "pkg", "resources", "data", given.expectedFile))
 
 			// then
 			Expect(err).ToNot(HaveOccurred())
@@ -112,7 +112,7 @@ var _ = Describe("GUI Server", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				// when
-				received, err := ioutil.ReadAll(resp.Body)
+				received, err := io.ReadAll(resp.Body)
 
 				// then
 				Expect(resp.Body.Close()).To(Succeed())

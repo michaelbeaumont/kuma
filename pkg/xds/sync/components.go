@@ -1,11 +1,11 @@
 package sync
 
 import (
+	"context"
+
+	kuma_cp "github.com/kumahq/kuma/pkg/config/app/kuma-cp"
 	"github.com/kumahq/kuma/pkg/core"
-	"github.com/kumahq/kuma/pkg/core/faultinjections"
-	"github.com/kumahq/kuma/pkg/core/logs"
-	"github.com/kumahq/kuma/pkg/core/permissions"
-	"github.com/kumahq/kuma/pkg/core/ratelimits"
+	"github.com/kumahq/kuma/pkg/core/datasource"
 	core_runtime "github.com/kumahq/kuma/pkg/core/runtime"
 	"github.com/kumahq/kuma/pkg/xds/cache/mesh"
 	xds_context "github.com/kumahq/kuma/pkg/xds/context"
@@ -17,21 +17,17 @@ var (
 	xdsServerLog = core.Log.WithName("xds-server")
 )
 
-func defaultDataplaneProxyBuilder(rt core_runtime.Runtime, metadataTracker DataplaneMetadataTracker, apiVersion envoy.APIVersion) *DataplaneProxyBuilder {
+func DefaultDataplaneProxyBuilder(
+	dataSourceLoader datasource.Loader,
+	config kuma_cp.Config,
+	metadataTracker DataplaneMetadataTracker,
+	apiVersion envoy.APIVersion,
+) *DataplaneProxyBuilder {
 	return &DataplaneProxyBuilder{
-		CachingResManager:     rt.ReadOnlyResourceManager(),
-		NonCachingResManager:  rt.ResourceManager(),
-		LookupIP:              rt.LookupIP(),
-		DataSourceLoader:      rt.DataSourceLoader(),
-		MetadataTracker:       metadataTracker,
-		PermissionMatcher:     permissions.TrafficPermissionsMatcher{ResourceManager: rt.ReadOnlyResourceManager()},
-		LogsMatcher:           logs.TrafficLogsMatcher{ResourceManager: rt.ReadOnlyResourceManager()},
-		FaultInjectionMatcher: faultinjections.FaultInjectionMatcher{ResourceManager: rt.ReadOnlyResourceManager()},
-		RateLimitMatcher:      ratelimits.RateLimitMatcher{ResourceManager: rt.ReadOnlyResourceManager()},
-		Zone:                  rt.Config().Multizone.Zone.Name,
-		APIVersion:            apiVersion,
-		ConfigManager:         rt.ConfigManager(),
-		TopLevelDomain:        rt.Config().DNSServer.Domain,
+		DataSourceLoader: dataSourceLoader,
+		MetadataTracker:  metadataTracker,
+		Zone:             config.Multizone.Zone.Name,
+		APIVersion:       apiVersion,
 	}
 }
 
@@ -45,33 +41,75 @@ func defaultIngressProxyBuilder(rt core_runtime.Runtime, metadataTracker Datapla
 	}
 }
 
+func defaultEgressProxyBuilder(
+	ctx context.Context,
+	rt core_runtime.Runtime,
+	metadataTracker DataplaneMetadataTracker,
+	meshCache *mesh.Cache,
+	apiVersion envoy.APIVersion,
+) *EgressProxyBuilder {
+	return &EgressProxyBuilder{
+		ctx:                ctx,
+		ResManager:         rt.ResourceManager(),
+		ReadOnlyResManager: rt.ReadOnlyResourceManager(),
+		LookupIP:           rt.LookupIP(),
+		MetadataTracker:    metadataTracker,
+		meshCache:          meshCache,
+		DataSourceLoader:   rt.DataSourceLoader(),
+		apiVersion:         apiVersion,
+		zone:               rt.Config().Multizone.Zone.Name,
+	}
+}
+
 func DefaultDataplaneWatchdogFactory(
 	rt core_runtime.Runtime,
 	metadataTracker DataplaneMetadataTracker,
 	dataplaneReconciler SnapshotReconciler,
 	ingressReconciler SnapshotReconciler,
+	egressReconciler SnapshotReconciler,
 	xdsMetrics *xds_metrics.Metrics,
 	meshSnapshotCache *mesh.Cache,
 	envoyCpCtx *xds_context.ControlPlaneContext,
 	apiVersion envoy.APIVersion,
 ) (DataplaneWatchdogFactory, error) {
-	dataplaneProxyBuilder := defaultDataplaneProxyBuilder(rt, metadataTracker, apiVersion)
-	ingressProxyBuilder := defaultIngressProxyBuilder(rt, metadataTracker, apiVersion)
-	xdsContextBuilder := newXDSContextBuilder(envoyCpCtx, rt.ReadOnlyResourceManager(), rt.LookupIP(), rt.EnvoyAdminClient())
+	ctx := context.Background()
+	config := rt.Config()
+
+	dataplaneProxyBuilder := DefaultDataplaneProxyBuilder(
+		rt.DataSourceLoader(),
+		config,
+		metadataTracker,
+		apiVersion,
+	)
+
+	ingressProxyBuilder := defaultIngressProxyBuilder(
+		rt,
+		metadataTracker,
+		apiVersion,
+	)
+
+	egressProxyBuilder := defaultEgressProxyBuilder(
+		ctx,
+		rt,
+		metadataTracker,
+		meshSnapshotCache,
+		apiVersion,
+	)
 
 	deps := DataplaneWatchdogDependencies{
 		dataplaneProxyBuilder: dataplaneProxyBuilder,
 		dataplaneReconciler:   dataplaneReconciler,
 		ingressProxyBuilder:   ingressProxyBuilder,
 		ingressReconciler:     ingressReconciler,
-		xdsContextBuilder:     xdsContextBuilder,
+		egressProxyBuilder:    egressProxyBuilder,
+		egressReconciler:      egressReconciler,
+		envoyCpCtx:            envoyCpCtx,
 		meshCache:             meshSnapshotCache,
 		metadataTracker:       metadataTracker,
-		secrets:               envoyCpCtx.Secrets,
 	}
 	return NewDataplaneWatchdogFactory(
 		xdsMetrics,
-		rt.Config().XdsServer.DataplaneConfigurationRefreshInterval,
+		config.XdsServer.DataplaneConfigurationRefreshInterval,
 		deps,
 	)
 }

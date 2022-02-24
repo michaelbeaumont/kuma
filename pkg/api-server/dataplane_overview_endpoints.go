@@ -129,7 +129,7 @@ func (r *dataplaneOverviewEndpoints) inspectDataplanes(request *restful.Request,
 
 func (r *dataplaneOverviewEndpoints) fetchOverviews(ctx context.Context, p page, meshName string, filter store.ListFilterFunc) (mesh.DataplaneOverviewResourceList, error) {
 	dataplanes := mesh.DataplaneResourceList{}
-	if err := r.resManager.List(ctx, &dataplanes, store.ListByMesh(meshName), store.ListByPage(p.size, p.offset), ListByFilterFunc(filter)); err != nil {
+	if err := r.resManager.List(ctx, &dataplanes, store.ListByMesh(meshName), store.ListByPage(p.size, p.offset), store.ListByFilterFunc(filter)); err != nil {
 		return mesh.DataplaneOverviewResourceList{}, err
 	}
 
@@ -192,19 +192,8 @@ func modeToFilter(mode string) DpFilter {
 	}
 }
 
-func ListByFilterFunc(filterFunc store.ListFilterFunc) store.ListOptionsFunc {
-	return func(opts *store.ListOptions) {
-		opts.FilterFunc = filterFunc
-	}
-}
-
 func genFilter(request *restful.Request) (store.ListFilterFunc, error) {
 	gatewayMode, err := modeFromParameter(request, "gateway")
-	if err != nil {
-		return nil, err
-	}
-
-	ingressMode, err := modeFromParameter(request, "ingress")
 	if err != nil {
 		return nil, err
 	}
@@ -213,13 +202,8 @@ func genFilter(request *restful.Request) (store.ListFilterFunc, error) {
 
 	return func(rs core_model.Resource) bool {
 		gatewayFilter := modeToFilter(gatewayMode)
-		ingressFilter := modeToFilter(ingressMode)
 		dataplane := rs.(*mesh.DataplaneResource)
 		if !gatewayFilter(dataplane.Spec.GetNetworking().GetGateway()) {
-			return false
-		}
-
-		if !ingressFilter(dataplane.Spec.GetNetworking().GetIngress()) {
 			return false
 		}
 

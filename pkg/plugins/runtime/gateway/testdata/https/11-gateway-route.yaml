@@ -116,6 +116,10 @@ Listeners:
               initialStreamWindowSize: 65536
               maxConcurrentStreams: 100
             httpFilters:
+            - name: envoy.filters.http.local_ratelimit
+              typedConfig:
+                '@type': type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                statPrefix: rate_limit
             - name: gzip-compress
               typedConfig:
                 '@type': type.googleapis.com/envoy.extensions.filters.http.compressor.v3.Compressor
@@ -172,7 +176,7 @@ Routes:
       virtualHosts:
       - domains:
         - echo.example.com
-        name: edge-gateway:HTTPS:8080:echo.example.com
+        name: echo.example.com
         requireTls: ALL
         responseHeadersToAdd:
         - append: false
@@ -181,6 +185,7 @@ Routes:
             value: max-age=31536000; includeSubDomains
         routes:
         - match:
+            prefix: /
             queryParameters:
             - name: Content-Type
               stringMatch:
@@ -193,28 +198,54 @@ Routes:
                   googleRe2: {}
                   regex: .*sh
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 15s
             weightedClusters:
               clusters:
               - name: regex-query-match-3804d7b8516d7323
                 weight: 1
               totalWeight: 1
         - match:
+            prefix: /
             queryParameters:
             - name: Content-Type
               stringMatch:
                 exact: application/json
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 15s
             weightedClusters:
               clusters:
               - name: exact-query-match-cc1370f58a3b5330
                 weight: 1
               totalWeight: 1
         - match:
+            prefix: /
             queryParameters:
             - name: Language
               stringMatch:
                 exact: gibberish
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 15s
             weightedClusters:
               clusters:
               - name: exact-query-match-cc1370f58a3b5330

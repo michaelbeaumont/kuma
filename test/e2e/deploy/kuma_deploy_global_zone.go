@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gruntwork-io/terratest/modules/k8s"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -12,17 +12,6 @@ import (
 )
 
 func ZoneAndGlobal() {
-	namespaceWithSidecarInjection := func(namespace string) string {
-		return fmt.Sprintf(`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: %s
-  annotations:
-    kuma.io/sidecar-injection: "enabled"
-`, namespace)
-	}
-
 	trafficRoutePolicy := func(namespace string, policyname string, weight int) string {
 		return fmt.Sprintf(`
 apiVersion: kuma.io/v1alpha1
@@ -53,12 +42,11 @@ spec:
 	var clusters Clusters
 	var c1, c2 Cluster
 	var global, zone ControlPlane
-	var optsGlobal, optsZone = KumaK8sDeployOpts, KumaZoneK8sDeployOpts
-	var originalKumaNamespace = KumaNamespace
+	var originalKumaNamespace = Config.KumaNamespace
 
 	BeforeEach(func() {
 		// set the new namespace
-		KumaNamespace = "other-kuma-system"
+		Config.KumaNamespace = "other-kuma-system"
 		var err error
 		clusters, err = NewK8sClusters(
 			[]string{Kuma1, Kuma2},
@@ -68,7 +56,7 @@ spec:
 		c1 = clusters.GetCluster(Kuma1)
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Global, optsGlobal...)).
+			Install(Kuma(core.Global)).
 			Setup(c1)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -76,29 +64,19 @@ spec:
 		Expect(global).ToNot(BeNil())
 
 		c2 = clusters.GetCluster(Kuma2)
-		optsZone = append(optsZone,
-			WithIngress(),
-			WithGlobalAddress(global.GetKDSServerAddress()))
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone...)).
-			Install(YamlK8s(namespaceWithSidecarInjection(TestNamespace))).
+			Install(Kuma(core.Zone,
+				WithIngress(),
+				WithGlobalAddress(global.GetKDSServerAddress()),
+			)).
+			Install(NamespaceWithSidecarInjection(TestNamespace)).
 			Install(DemoClientK8s("default")).
 			Setup(c2)
 		Expect(err).ToNot(HaveOccurred())
 
 		zone = c2.GetKuma()
 		Expect(zone).ToNot(BeNil())
-
-		// when
-		err = c1.VerifyKuma()
-		// then
-		Expect(err).ToNot(HaveOccurred())
-
-		// when
-		err = c2.VerifyKuma()
-		// then
-		Expect(err).ToNot(HaveOccurred())
 
 		// then
 		logs1, err := global.GetKumaCPLogs()
@@ -118,16 +96,16 @@ spec:
 
 		defer func() {
 			// restore the original namespace
-			KumaNamespace = originalKumaNamespace
+			Config.KumaNamespace = originalKumaNamespace
 		}()
 
 		err := c2.DeleteNamespace(TestNamespace)
 		Expect(err).ToNot(HaveOccurred())
 
-		err = c1.DeleteKuma(optsGlobal...)
+		err = c1.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 
-		err = c2.DeleteKuma(optsZone...)
+		err = c2.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(clusters.DismissCluster()).To(Succeed())
@@ -146,8 +124,8 @@ spec:
 			return output
 		}, "5s", "500ms").Should(ContainSubstring("kuma-2-zone.demo-client"))
 
-		policy_create := trafficRoutePolicy(KumaNamespace, "traffic-default", 100)
-		policy_update := trafficRoutePolicy(KumaNamespace, "traffic-default", 101)
+		policy_create := trafficRoutePolicy(Config.KumaNamespace, "traffic-default", 100)
+		policy_update := trafficRoutePolicy(Config.KumaNamespace, "traffic-default", 101)
 
 		// Deny policy CREATE on zone
 		err := k8s.KubectlApplyFromStringE(c2.GetTesting(), c2.GetKubectlOptions(), policy_update)

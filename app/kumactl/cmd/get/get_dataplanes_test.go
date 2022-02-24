@@ -3,11 +3,9 @@ package get_test
 import (
 	"bytes"
 	"context"
-	"path/filepath"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	gomega_types "github.com/onsi/gomega/types"
 	"github.com/spf13/cobra"
@@ -113,7 +111,7 @@ var _ = Describe("kumactl get dataplanes", func() {
 			outputFormat string
 			pagination   string
 			goldenFile   string
-			matcher      func(path string) gomega_types.GomegaMatcher
+			matcher      func(path ...string) gomega_types.GomegaMatcher
 		}
 
 		DescribeTable("kumactl get dataplanes -o table|json|yaml",
@@ -124,9 +122,7 @@ var _ = Describe("kumactl get dataplanes", func() {
 				).To(Succeed())
 
 				// then
-				Expect(buf.String()).To(given.matcher(
-					filepath.Join("testdata", given.goldenFile),
-				))
+				Expect(buf.String()).To(given.matcher("testdata", given.goldenFile))
 			},
 			Entry("should support Table output by default", testCase{
 				outputFormat: "",

@@ -3,13 +3,9 @@ package get_test
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
-	"path/filepath"
-	"strings"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	gomega_types "github.com/onsi/gomega/types"
 	"github.com/spf13/cobra"
@@ -21,6 +17,7 @@ import (
 	core_store "github.com/kumahq/kuma/pkg/core/resources/store"
 	memory_resources "github.com/kumahq/kuma/pkg/plugins/resources/memory"
 	test_kumactl "github.com/kumahq/kuma/pkg/test/kumactl"
+	"github.com/kumahq/kuma/pkg/test/matchers"
 	test_model "github.com/kumahq/kuma/pkg/test/resources/model"
 	util_proto "github.com/kumahq/kuma/pkg/util/proto"
 )
@@ -157,7 +154,7 @@ var _ = Describe("kumactl get meshes", func() {
 			outputFormat string
 			goldenFile   string
 			pagination   string
-			matcher      func(interface{}) gomega_types.GomegaMatcher
+			matcher      func(path ...string) gomega_types.GomegaMatcher
 		}
 
 		DescribeTable("kumactl get meshes -o table|json|yaml",
@@ -167,44 +164,34 @@ var _ = Describe("kumactl get meshes", func() {
 					ExecuteRootCommand(rootCmd, "meshes", given.outputFormat, given.pagination),
 				).To(Succeed())
 
-				// when
-				expected, err := ioutil.ReadFile(filepath.Join("testdata", given.goldenFile))
 				// then
-				Expect(err).ToNot(HaveOccurred())
-				// and
-				Expect(buf.String()).To(given.matcher(expected))
+				Expect(buf.String()).To(given.matcher("testdata", given.goldenFile))
 			},
 			Entry("should support Table output by default", testCase{
 				outputFormat: "",
 				goldenFile:   "get-meshes.golden.txt",
-				matcher: func(expected interface{}) gomega_types.GomegaMatcher {
-					return WithTransform(strings.TrimSpace, Equal(strings.TrimSpace(string(expected.([]byte)))))
-				},
+				matcher:      matchers.MatchGoldenEqual,
 			}),
 			Entry("should support Table output explicitly", testCase{
 				outputFormat: "-otable",
 				goldenFile:   "get-meshes.golden.txt",
-				matcher: func(expected interface{}) gomega_types.GomegaMatcher {
-					return WithTransform(strings.TrimSpace, Equal(strings.TrimSpace(string(expected.([]byte)))))
-				},
+				matcher:      matchers.MatchGoldenEqual,
 			}),
 			Entry("should support pagination", testCase{
 				outputFormat: "-otable",
 				pagination:   "--size=1",
 				goldenFile:   "get-meshes.pagination.golden.txt",
-				matcher: func(expected interface{}) gomega_types.GomegaMatcher {
-					return WithTransform(strings.TrimSpace, Equal(strings.TrimSpace(string(expected.([]byte)))))
-				},
+				matcher:      matchers.MatchGoldenEqual,
 			}),
 			Entry("should support JSON output", testCase{
 				outputFormat: "-ojson",
 				goldenFile:   "get-meshes.golden.json",
-				matcher:      MatchJSON,
+				matcher:      matchers.MatchGoldenJSON,
 			}),
 			Entry("should support YAML output", testCase{
 				outputFormat: "-oyaml",
 				goldenFile:   "get-meshes.golden.yaml",
-				matcher:      MatchYAML,
+				matcher:      matchers.MatchGoldenYAML,
 			}),
 		)
 	})

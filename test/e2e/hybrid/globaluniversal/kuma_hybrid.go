@@ -5,7 +5,7 @@ import (
 	"regexp"
 
 	"github.com/gruntwork-io/terratest/modules/k8s"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,9 +15,8 @@ import (
 	"github.com/kumahq/kuma/test/framework/deployments/testserver"
 )
 
-func KubernetesUniversalDeployment() {
-	meshMTLSOn := func(mesh string) string {
-		return fmt.Sprintf(`
+func meshMTLSOn(mesh string) string {
+	return fmt.Sprintf(`
 type: Mesh
 name: %s
 mtls:
@@ -26,162 +25,115 @@ mtls:
   - name: ca-1
     type: builtin
 `, mesh)
-	}
+}
 
-	namespaceWithSidecarInjection := func(namespace string) string {
-		return fmt.Sprintf(`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: %s
-  annotations:
-    kuma.io/sidecar-injection: "enabled"
-`, namespace)
-	}
+var global, zone1, zone2, zone3, zone4 Cluster
 
-	var global, zone1, zone2, zone3, zone4 Cluster
-	var optsGlobal, optsZone1, optsZone2, optsZone3, optsZone4 = KumaUniversalDeployOpts, KumaZoneK8sDeployOpts, KumaZoneK8sDeployOpts, KumaUniversalDeployOpts, KumaUniversalDeployOpts
+const nonDefaultMesh = "non-default"
+const defaultMesh = "default"
 
-	const nonDefaultMesh = "non-default"
-	const defaultMesh = "default"
+var _ = E2EBeforeSuite(func() {
+	k8sClusters, err := NewK8sClusters(
+		[]string{Kuma1, Kuma2},
+		Silent)
+	Expect(err).ToNot(HaveOccurred())
 
-	BeforeSuite(func() {
-		k8sClusters, err := NewK8sClusters(
-			[]string{Kuma1, Kuma2},
-			Silent)
-		Expect(err).ToNot(HaveOccurred())
+	universalClusters, err := NewUniversalClusters(
+		[]string{Kuma3, Kuma4, Kuma5},
+		Silent)
+	Expect(err).ToNot(HaveOccurred())
 
-		universalClusters, err := NewUniversalClusters(
-			[]string{Kuma3, Kuma4, Kuma5},
-			Silent)
-		Expect(err).ToNot(HaveOccurred())
+	// Global
+	global = universalClusters.GetCluster(Kuma5)
 
-		// Global
-		global = universalClusters.GetCluster(Kuma5)
+	Expect(NewClusterSetup().
+		Install(Kuma(core.Global)).
+		Install(YamlUniversal(meshMTLSOn(nonDefaultMesh))).
+		Install(YamlUniversal(meshMTLSOn(defaultMesh))).
+		Setup(global)).To(Succeed())
 
-		err = NewClusterSetup().
-			Install(Kuma(core.Global, optsGlobal...)).
-			Install(YamlUniversal(meshMTLSOn(nonDefaultMesh))).
-			Install(YamlUniversal(meshMTLSOn(defaultMesh))).
-			Setup(global)
-		Expect(err).ToNot(HaveOccurred())
-		err = global.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
+	E2EDeferCleanup(global.DismissCluster)
 
-		globalCP := global.GetKuma()
+	globalCP := global.GetKuma()
 
-		echoServerToken, err := globalCP.GenerateDpToken(nonDefaultMesh, "test-server")
-		Expect(err).ToNot(HaveOccurred())
-		demoClientToken, err := globalCP.GenerateDpToken(nonDefaultMesh, "demo-client")
-		Expect(err).ToNot(HaveOccurred())
+	echoServerToken, err := globalCP.GenerateDpToken(nonDefaultMesh, "test-server")
+	Expect(err).ToNot(HaveOccurred())
+	demoClientToken, err := globalCP.GenerateDpToken(nonDefaultMesh, "demo-client")
+	Expect(err).ToNot(HaveOccurred())
 
-		// K8s Cluster 1
-		zone1 = k8sClusters.GetCluster(Kuma1)
-		optsZone1 = append(optsZone1,
+	// K8s Cluster 1
+	zone1 = k8sClusters.GetCluster(Kuma1)
+	Expect(NewClusterSetup().
+		Install(Kuma(core.Zone,
 			WithIngress(),
 			WithGlobalAddress(globalCP.GetKDSServerAddress()),
 			WithCNI(),
-			WithEnv("KUMA_RUNTIME_KUBERNETES_INJECTOR_BUILTIN_DNS_ENABLED", "false")) // check if old resolving still works
+			WithEnv("KUMA_RUNTIME_KUBERNETES_INJECTOR_BUILTIN_DNS_ENABLED", "false"), // check if old resolving still works
+		)).
+		Install(KumaDNS()).
+		Install(NamespaceWithSidecarInjection(TestNamespace)).
+		Install(DemoClientK8s(nonDefaultMesh)).
+		Setup(zone1)).To(Succeed())
 
-		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone1...)).
-			Install(KumaDNS()).
-			Install(YamlK8s(namespaceWithSidecarInjection(TestNamespace))).
-			Install(DemoClientK8s(nonDefaultMesh)).
-			Setup(zone1)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone1.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
+	E2EDeferCleanup(func() {
+		Expect(zone1.DeleteNamespace(TestNamespace)).To(Succeed())
+		Expect(zone1.DeleteKuma()).To(Succeed())
+		Expect(zone1.DismissCluster()).To(Succeed())
+	})
 
-		// K8s Cluster 2
-		zone2 = k8sClusters.GetCluster(Kuma2)
-		optsZone2 = append(optsZone2,
+	// K8s Cluster 2
+	zone2 = k8sClusters.GetCluster(Kuma2)
+
+	Expect(NewClusterSetup().
+		Install(Kuma(core.Zone,
 			WithIngress(),
 			WithGlobalAddress(globalCP.GetKDSServerAddress()),
-			WithEnv("KUMA_RUNTIME_KUBERNETES_INJECTOR_BUILTIN_DNS_ENABLED", "false"))
+			WithEnv("KUMA_RUNTIME_KUBERNETES_INJECTOR_BUILTIN_DNS_ENABLED", "false"),
+		)).
+		Install(KumaDNS()).
+		Install(NamespaceWithSidecarInjection(TestNamespace)).
+		Install(testserver.Install(testserver.WithMesh(nonDefaultMesh), testserver.WithServiceAccount("sa-test"))).
+		Install(DemoClientK8s(nonDefaultMesh)).
+		Setup(zone2)).To(Succeed())
 
-		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone2...)).
-			Install(KumaDNS()).
-			Install(YamlK8s(namespaceWithSidecarInjection(TestNamespace))).
-			Install(testserver.Install(testserver.WithMesh(nonDefaultMesh), testserver.WithServiceAccount("sa-test"))).
-			Install(DemoClientK8s(nonDefaultMesh)).
-			Setup(zone2)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone2.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
-
-		// Universal Cluster 3
-		zone3 = universalClusters.GetCluster(Kuma3)
-		optsZone3 = append(optsZone3,
-			WithGlobalAddress(globalCP.GetKDSServerAddress()))
-		ingressTokenKuma3, err := globalCP.GenerateZoneIngressToken(Kuma3)
-		Expect(err).ToNot(HaveOccurred())
-
-		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone3...)).
-			Install(TestServerUniversal("dp-echo", nonDefaultMesh, echoServerToken,
-				WithArgs([]string{"echo", "--instance", "echo-v1"}),
-				WithServiceName("test-server"),
-			)).
-			Install(DemoClientUniversal(AppModeDemoClient, nonDefaultMesh, demoClientToken, WithTransparentProxy(true), WithBuiltinDNS(false))).
-			Install(IngressUniversal(ingressTokenKuma3)).
-			Setup(zone3)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone3.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
-
-		// Universal Cluster 4
-		zone4 = universalClusters.GetCluster(Kuma4)
-		optsZone4 = append(optsZone4,
-			WithGlobalAddress(globalCP.GetKDSServerAddress()))
-		ingressTokenKuma4, err := globalCP.GenerateZoneIngressToken(Kuma4)
-		Expect(err).ToNot(HaveOccurred())
-
-		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone4...)).
-			Install(DemoClientUniversal(AppModeDemoClient, nonDefaultMesh, demoClientToken, WithTransparentProxy(true))).
-			Install(IngressUniversal(ingressTokenKuma4)).
-			Setup(zone4)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone4.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
+	E2EDeferCleanup(func() {
+		Expect(zone2.DeleteNamespace(TestNamespace)).To(Succeed())
+		Expect(zone2.DeleteKuma()).To(Succeed())
+		Expect(zone2.DismissCluster()).To(Succeed())
 	})
 
-	AfterSuite(func() {
-		if ShouldSkipCleanup() {
-			return
-		}
-		err := zone1.DeleteNamespace(TestNamespace)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone1.DeleteKuma(optsZone1...)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone1.DismissCluster()
-		Expect(err).ToNot(HaveOccurred())
+	// Universal Cluster 3
+	zone3 = universalClusters.GetCluster(Kuma3)
+	ingressTokenKuma3, err := globalCP.GenerateZoneIngressToken(Kuma3)
+	Expect(err).ToNot(HaveOccurred())
 
-		err = zone2.DeleteNamespace(TestNamespace)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone2.DeleteKuma(optsZone2...)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone2.DismissCluster()
-		Expect(err).ToNot(HaveOccurred())
+	Expect(NewClusterSetup().
+		Install(Kuma(core.Zone, WithGlobalAddress(globalCP.GetKDSServerAddress()))).
+		Install(TestServerUniversal("dp-echo", nonDefaultMesh, echoServerToken,
+			WithArgs([]string{"echo", "--instance", "echo-v1"}),
+			WithServiceName("test-server"),
+		)).
+		Install(DemoClientUniversal(AppModeDemoClient, nonDefaultMesh, demoClientToken, WithTransparentProxy(true), WithBuiltinDNS(false))).
+		Install(IngressUniversal(ingressTokenKuma3)).
+		Setup(zone3)).To(Succeed())
 
-		err = zone3.DeleteKuma(optsZone3...)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone3.DismissCluster()
-		Expect(err).ToNot(HaveOccurred())
+	E2EDeferCleanup(zone3.DismissCluster)
 
-		err = zone4.DeleteKuma(optsZone4...)
-		Expect(err).ToNot(HaveOccurred())
-		err = zone4.DismissCluster()
-		Expect(err).ToNot(HaveOccurred())
+	// Universal Cluster 4
+	zone4 = universalClusters.GetCluster(Kuma4)
+	ingressTokenKuma4, err := globalCP.GenerateZoneIngressToken(Kuma4)
+	Expect(err).ToNot(HaveOccurred())
 
-		err = global.DeleteKuma(optsGlobal...)
-		Expect(err).ToNot(HaveOccurred())
-		err = global.DismissCluster()
-		Expect(err).ToNot(HaveOccurred())
-	})
+	Expect(NewClusterSetup().
+		Install(Kuma(core.Zone, WithGlobalAddress(globalCP.GetKDSServerAddress()))).
+		Install(DemoClientUniversal(AppModeDemoClient, nonDefaultMesh, demoClientToken, WithTransparentProxy(true))).
+		Install(IngressUniversal(ingressTokenKuma4)).
+		Setup(zone4)).To(Succeed())
 
+	E2EDeferCleanup(zone4.DismissCluster)
+})
+
+func KubernetesUniversalDeployment() {
 	It("should correctly synchronize Dataplanes and ZoneIngresses and their statuses", func() {
 		Eventually(func() error {
 			output, err := global.GetKumactlOptions().RunKumactlAndGetOutput("inspect", "zone-ingresses")
@@ -262,19 +214,5 @@ metadata:
 			"curl", "-v", "-m", "3", "--fail", "test-server.mesh")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(stdout).To(ContainSubstring("HTTP/1.1 200 OK"))
-	})
-
-	It("should support jobs with a sidecar", func() {
-		// when deploy job that connects to a service on other K8S cluster
-		err := DemoClientJobK8s(TestNamespace, nonDefaultMesh, "test-server_kuma-test_svc_80.mesh")(zone1)
-
-		// then job is properly cleaned up and finished
-		Expect(err).ToNot(HaveOccurred())
-
-		// when deploy job that connects to a service on other Universal cluster
-		err = DemoClientJobK8s(TestNamespace, nonDefaultMesh, "test-server.mesh")(zone2)
-
-		// then job is properly cleaned up and finished
-		Expect(err).ToNot(HaveOccurred())
 	})
 }

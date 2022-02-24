@@ -1,7 +1,7 @@
 package universal
 
 import (
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -15,10 +15,8 @@ func ServiceProbes() {
 		cluster = NewUniversalCluster(NewTestingT(), Kuma3, Silent)
 
 		err := NewClusterSetup().
-			Install(Kuma(core.Standalone, KumaUniversalDeployOpts...)).
+			Install(Kuma(core.Standalone)).
 			Setup(cluster)
-		Expect(err).ToNot(HaveOccurred())
-		err = cluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		echoServerToken, err := cluster.GetKuma().GenerateDpToken("default", "test-server")
@@ -39,7 +37,7 @@ func ServiceProbes() {
 		if ShouldSkipCleanup() {
 			return
 		}
-		Expect(cluster.DeleteKuma(KumaUniversalDeployOpts...)).To(Succeed())
+		Expect(cluster.DeleteKuma()).To(Succeed())
 		Expect(cluster.DismissCluster()).To(Succeed())
 	})
 

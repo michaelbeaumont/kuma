@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/util/test"
@@ -47,6 +46,10 @@ var _ = Describe("kumactl install crds", func() {
 		Entry("should generate all Kuma's CRD resources", testCase{
 			extraArgs:  nil,
 			goldenFile: "install-crds.all.golden.yaml",
+		}),
+		Entry("should generate all Kuma's CRD resources including experimental meshgateway", testCase{
+			extraArgs:  []string{"--experimental-meshgateway"},
+			goldenFile: "install-crds.experimental-meshgateway.golden.yaml",
 		}),
 	)
 })

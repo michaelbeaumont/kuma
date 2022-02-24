@@ -1,11 +1,10 @@
 package generator_test
 
 import (
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -112,7 +111,7 @@ var _ = Describe("ProxyTemplateGenerator", func() {
 			func(given testCase) {
 				// setup
 				proxyTemplate := mesh_proto.ProxyTemplate{}
-				ptBytes, err := ioutil.ReadFile(filepath.Join("testdata", "template-proxy", given.proxyTemplateFile))
+				ptBytes, err := os.ReadFile(filepath.Join("testdata", "template-proxy", given.proxyTemplateFile))
 				Expect(err).ToNot(HaveOccurred())
 				Expect(util_proto.FromYAML(ptBytes, &proxyTemplate)).To(Succeed())
 				gen := &generator.ProxyTemplateGenerator{

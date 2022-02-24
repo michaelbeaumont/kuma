@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -9,7 +10,14 @@ import (
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
+	"github.com/kumahq/kuma/pkg/plugins/runtime/k8s/metadata"
 	util_k8s "github.com/kumahq/kuma/pkg/plugins/runtime/k8s/util"
+)
+
+const (
+	KubeNamespaceTag = "k8s.kuma.io/namespace"
+	KubeServiceTag   = "k8s.kuma.io/service-name"
+	KubePortTag      = "k8s.kuma.io/service-port"
 )
 
 func inboundForService(zone string, pod *kube_core.Pod, service *kube_core.Service) (ifaces []*mesh_proto.Dataplane_Networking_Inbound) {
@@ -124,14 +132,22 @@ func InboundInterfacesFor(zone string, pod *kube_core.Pod, services []*kube_core
 func InboundTagsForService(zone string, pod *kube_core.Pod, svc *kube_core.Service, svcPort *kube_core.ServicePort) map[string]string {
 	tags := util_k8s.CopyStringMap(pod.Labels)
 	for key, value := range tags {
-		if value == "" {
+		if key == metadata.KumaSidecarInjectionAnnotation || value == "" {
+			delete(tags, key)
+		} else if strings.Contains(key, "kuma.io/") {
+			// we don't want to convert labels like
+			// kuma.io/sidecar-injection, kuma.io/service, k8s.kuma.io/namespace etc.
+			converterLog.Info("ignoring label when converting labels to tags, because it uses reserved Kuma prefix", "label", key, "pod", pod.Name)
 			delete(tags, key)
 		}
 	}
 	if tags == nil {
 		tags = make(map[string]string)
 	}
-	tags[mesh_proto.ServiceTag] = ServiceTagFor(svc, svcPort)
+	tags[KubeNamespaceTag] = pod.Namespace
+	tags[KubeServiceTag] = svc.Name
+	tags[KubePortTag] = strconv.Itoa(int(svcPort.Port))
+	tags[mesh_proto.ServiceTag] = util_k8s.ServiceTagFor(svc, &svcPort.Port)
 	if zone != "" {
 		tags[mesh_proto.ZoneTag] = zone
 	}
@@ -140,10 +156,6 @@ func InboundTagsForService(zone string, pod *kube_core.Pod, svc *kube_core.Servi
 		tags[mesh_proto.InstanceTag] = pod.Name
 	}
 	return tags
-}
-
-func ServiceTagFor(svc *kube_core.Service, svcPort *kube_core.ServicePort) string {
-	return fmt.Sprintf("%s_%s_svc_%d", svc.Name, svc.Namespace, svcPort.Port)
 }
 
 // ProtocolTagFor infers service protocol from a `<port>.service.kuma.io/protocol` annotation or `appProtocol`.
@@ -178,6 +190,7 @@ func InboundTagsForPod(zone string, pod *kube_core.Pod) map[string]string {
 	if tags == nil {
 		tags = make(map[string]string)
 	}
+	tags[KubeNamespaceTag] = pod.Namespace
 	tags[mesh_proto.ServiceTag] = fmt.Sprintf("%s_%s_svc", nameFromPod(pod), pod.Namespace)
 	if zone != "" {
 		tags[mesh_proto.ZoneTag] = zone

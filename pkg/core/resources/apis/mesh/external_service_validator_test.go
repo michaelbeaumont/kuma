@@ -2,8 +2,7 @@ package mesh_test
 
 import (
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
@@ -223,8 +222,8 @@ var _ = Describe("ExternalService", func() {
                   version: "1"`,
 			expected: `
                 violations:
-                - field: tags["kuma.io/service"]
-                  message: tag has to exist`,
+                - field: tags
+                  message: mandatory tag "kuma.io/service" is missing`,
 		}),
 		Entry("tags: empty tag value", testCase{
 			dataplane: `
@@ -239,7 +238,7 @@ var _ = Describe("ExternalService", func() {
 			expected: `
                 violations:
                 - field: tags["version"]
-                  message: tag value cannot be empty`,
+                  message: tag value must be non-empty`,
 		}),
 		Entry("tags: `protocol` tag with an empty value", testCase{
 			dataplane: `
@@ -254,10 +253,9 @@ var _ = Describe("ExternalService", func() {
 			expected: `
                 violations:
                 - field: tags["kuma.io/protocol"]
-                  message: tag value cannot be empty
-                - field: tags["kuma.io/protocol"]
                   message: 'tag "kuma.io/protocol" has an invalid value "". Allowed values: grpc, http, http2, kafka, tcp'
-`,
+                - field: tags["kuma.io/protocol"]
+                  message: tag value must be non-empty`,
 		}),
 		Entry("tags: `protocol` tag with unsupported value", testCase{
 			dataplane: `

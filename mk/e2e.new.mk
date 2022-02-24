@@ -1,74 +1,47 @@
 K8SCLUSTERS = kuma-1 kuma-2
 K8SCLUSTERS_START_TARGETS = $(addprefix test/e2e/k8s/start/cluster/, $(K8SCLUSTERS))
 K8SCLUSTERS_STOP_TARGETS  = $(addprefix test/e2e/k8s/stop/cluster/, $(K8SCLUSTERS))
-API_VERSION ?= v3
+K8SCLUSTERS_LOAD_IMAGES_TARGETS  = $(addprefix test/e2e/k8s/load/images/, $(K8SCLUSTERS))
+K8SCLUSTERS_WAIT_TARGETS  = $(addprefix test/e2e/k8s/wait/, $(K8SCLUSTERS))
 # export `IPV6=true` to enable IPv6 testing
 
-HELM_CHART_PATH ?=
-KUMA_GLOBAL_IMAGE_TAG ?=
-KUMA_GLOBAL_IMAGE_REGISTRY ?=
-KUMA_CP_IMAGE_REPOSITORY ?=
-KUMA_DP_IMAGE_REPOSITORY ?=
-KUMA_DP_INIT_IMAGE_REPOSITORY ?=
-KUMA_USE_LOAD_BALANCER ?=
-KUMA_USE_HOSTNAME_INSTEAD_OF_IP ?=
-KUMA_DEFAULT_RETRIES ?=
-KUMA_DEFAULT_TIMEOUT ?=
+# Targets to run prior to running the tests
+E2E_DEPS_TARGETS ?=
+# Environment veriables the tests should run with
+E2E_ENV_VARS ?=
 
-ENV_VARS ?= API_VERSION="$(API_VERSION)"
-
-ifdef KUMA_UNIVERSAL_IMAGE
-	ENV_VARS += KUMA_UNIVERSAL_IMAGE=$(KUMA_UNIVERSAL_IMAGE)
+ifdef CI
+# In circleCI all this was built from previous targets let's reuse them!
+E2E_DEPS_TARGETS+= docker/load
+else
+E2E_DEPS_TARGETS+= build/kumactl images
 endif
 
-ifdef HELM_CHART_PATH
-	ENV_VARS += HELM_CHART_PATH=$(HELM_CHART_PATH)
+ifndef KUMA_UNIVERSAL_IMAGE
+	KUMA_UNIVERSAL_IMAGE=$(KUMA_UNIVERSAL_DOCKER_IMAGE)
 endif
-
-ifdef KUMA_GLOBAL_IMAGE_TAG
-	ENV_VARS += KUMA_GLOBAL_IMAGE_TAG=$(KUMA_GLOBAL_IMAGE_TAG)
-endif
-
-ifdef KUMA_GLOBAL_IMAGE_REGISTRY
-	ENV_VARS += KUMA_GLOBAL_IMAGE_REGISTRY=$(KUMA_GLOBAL_IMAGE_REGISTRY)
-endif
-
-ifdef KUMA_CP_IMAGE_REPOSITORY
-	ENV_VARS += KUMA_CP_IMAGE_REPOSITORY=$(KUMA_CP_IMAGE_REPOSITORY)
-endif
-
-ifdef KUMA_DP_IMAGE_REPOSITORY
-	ENV_VARS += KUMA_DP_IMAGE_REPOSITORY=$(KUMA_DP_IMAGE_REPOSITORY)
-endif
-
-ifdef KUMA_DP_INIT_IMAGE_REPOSITORY
-	ENV_VARS += KUMA_DP_INIT_IMAGE_REPOSITORY=$(KUMA_DP_INIT_IMAGE_REPOSITORY)
-endif
-
-ifdef KUMA_USE_LOAD_BALANCER
-	ENV_VARS += KUMA_USE_LOAD_BALANCER=$(KUMA_USE_LOAD_BALANCER)
-endif
-
-ifdef KUMA_USE_HOSTNAME_INSTEAD_OF_IP
-	ENV_VARS += KUMA_USE_HOSTNAME_INSTEAD_OF_IP=$(KUMA_USE_HOSTNAME_INSTEAD_OF_IP)
-endif
-
-ifdef KUMA_DEFAULT_RETRIES
-	ENV_VARS += KUMA_DEFAULT_RETRIES=$(KUMA_DEFAULT_RETRIES)
-endif
-
-ifdef KUMA_DEFAULT_TIMEOUT
-	ENV_VARS += KUMA_DEFAULT_TIMEOUT=$(KUMA_DEFAULT_TIMEOUT)
-endif
+E2E_ENV_VARS += KUMA_UNIVERSAL_IMAGE=$(KUMA_UNIVERSAL_IMAGE)
 
 # We don't use `go list` here because Ginkgo requires disk path names,
 # not Go packages names.
 TEST_NAMES = $(shell ls -1 ./test/e2e)
 ALL_TESTS = $(addprefix ./test/e2e/, $(addsuffix /..., $(TEST_NAMES)))
 E2E_PKG_LIST ?= $(ALL_TESTS)
+GINKGO_E2E_FLAGS ?=
+
+ifdef GINKGO_TEST_RESULTS_DIR
+	GINKGO_E2E_FLAGS += \
+		--keep-separate-reports \
+		--output-dir $(GINKGO_TEST_RESULTS_DIR) \
+		--junit-report results.xml \
+		--json-report results.json
+endif
+
+GO_TEST_E2E:=ginkgo $(GOFLAGS) $(LD_FLAGS) $(GINKGO_E2E_FLAGS)
 
 ifdef K3D
 K8S_CLUSTER_TOOL=k3d
+E2E_ENV_VARS += KUMA_K8S_TYPE=k3d
 else
 K8S_CLUSTER_TOOL=kind
 endif
@@ -83,8 +56,14 @@ test/e2e/k8s/start/cluster/$1:
 	KIND_CONFIG=$(TOP)/test/kind/cluster$(KIND_CONFIG_IPV6)-$1.yaml \
 	KIND_CLUSTER_NAME=$1 \
 		$(MAKE) $(K8S_CLUSTER_TOOL)/start
-	KIND_CLUSTER_NAME=$1 \
-		$(MAKE) $(K8S_CLUSTER_TOOL)/load/images
+
+.PHONY: test/e2e/k8s/load/images/$1
+test/e2e/k8s/load/images/$1:
+	KIND_CLUSTER_NAME=$1 $(MAKE) $(K8S_CLUSTER_TOOL)/load/images
+
+.PHONY: test/e2e/k8s/wait/$1
+test/e2e/k8s/wait/$1:
+	KIND_CLUSTER_NAME=$1 $(MAKE) $(K8S_CLUSTER_TOOL)/wait
 
 .PHONY: test/e2e/k8s/stop/cluster/$1
 test/e2e/k8s/stop/cluster/$1:
@@ -94,12 +73,17 @@ endef
 
 $(foreach cluster, $(K8SCLUSTERS), $(eval $(call gen-k8sclusters,$(cluster))))
 
-.PHHONY: test/e2e/list
+ifdef K8SCLUSTERS
+E2E_ENV_VARS += K8SCLUSTERS="$(K8SCLUSTERS)"
+endif
+E2E_ENV_VARS += KUMACTLBIN=${BUILD_ARTIFACTS_DIR}/kumactl/kumactl
+.PHONY: test/e2e/list
 test/e2e/list:
 	@echo $(ALL_TESTS)
 
 .PHONY: test/e2e/k8s/start
 test/e2e/k8s/start: $(K8SCLUSTERS_START_TARGETS)
+	$(MAKE) $(K8SCLUSTERS_LOAD_IMAGES_TARGETS) # execute after start targets
 
 .PHONY: test/e2e/k8s/stop
 test/e2e/k8s/stop: $(K8SCLUSTERS_STOP_TARGETS)
@@ -107,10 +91,7 @@ test/e2e/k8s/stop: $(K8SCLUSTERS_STOP_TARGETS)
 .PHONY: test/e2e/test
 test/e2e/test:
 	for t in $(E2E_PKG_LIST); do \
-		K8SCLUSTERS="$(K8SCLUSTERS)" \
-		KUMACTLBIN=${BUILD_ARTIFACTS_DIR}/kumactl/kumactl \
-		$(ENV_VARS) \
-		$(GO_TEST_E2E) -v -timeout=45m $$t || exit; \
+		$(E2E_ENV_VARS) $(GO_TEST_E2E) -v -timeout=45m $$t || exit; \
 	done
 
 # test/e2e/debug is used for quicker feedback of E2E tests (ex. debugging flaky tests)
@@ -120,23 +101,37 @@ test/e2e/test:
 # We run ginkgo instead of "go test" to fail fast (builtin "go test" fail fast does not seem to work with individual ginkgo tests)
 .PHONY: test/e2e/debug
 test/e2e/debug: build/kumactl images test/e2e/k8s/start
-	K8SCLUSTERS="$(K8SCLUSTERS)" \
-	KUMACTLBIN=${BUILD_ARTIFACTS_DIR}/kumactl/kumactl \
-	API_VERSION="$(API_VERSION)" \
+	$(E2E_ENV_VARS) \
 	GINKGO_EDITOR_INTEGRATION=true \
-		ginkgo --failFast $(GOFLAGS) $(LD_FLAGS) $(E2E_PKG_LIST)
+		$(GO_TEST_E2E) --fail-fast $(E2E_PKG_LIST)
+	$(MAKE) test/e2e/k8s/stop
+
+# test/e2e/debug-fast is an experimental target tested with K3D=true.
+# test/e2e/debug-fast is an equivalent of test/e2e/debug, but with the goal to minimize time for test to start running.
+# Run only with -j and K3D=true
+.PHONY: test/e2e/debug-fast
+test/e2e/debug-fast:
+	$(MAKE) $(K8SCLUSTERS_START_TARGETS) & # start K8S clusters in the background since it takes the most time
+	$(MAKE) images
+	$(MAKE) build/kumactl
+	$(MAKE) $(K8SCLUSTERS_LOAD_IMAGES_TARGETS) # K3D is able to load images before the cluster is ready. It retries if cluster is not able to handle images yet.
+	$(MAKE) $(K8SCLUSTERS_WAIT_TARGETS) # there is no easy way of waiting for processes in the background so just wait for K8S clusters
+	$(E2E_ENV_VARS) \
+	GINKGO_EDITOR_INTEGRATION=true \
+		$(GO_TEST_E2E) --fail-fast $(E2E_PKG_LIST)
+	$(MAKE) test/e2e/k8s/stop
 
 # test/e2e/debug-universal is the same target as 'test/e2e/debug' but builds only 'kuma-universal' image
 # and doesn't start Kind clusters
 .PHONY: test/e2e/debug-universal
 test/e2e/debug-universal: build/kumactl images/test
-	K8SCLUSTERS="$(K8SCLUSTERS)" \
-	KUMACTLBIN=${BUILD_ARTIFACTS_DIR}/kumactl/kumactl \
-	API_VERSION="$(API_VERSION)" \
+	$(E2E_ENV_VARS) \
 	GINKGO_EDITOR_INTEGRATION=true \
-		ginkgo --failFast $(GOFLAGS) $(LD_FLAGS) $(E2E_PKG_LIST)
+		$(GO_TEST_E2E) --fail-fast $(E2E_PKG_LIST)
+
 
 .PHONY: test/e2e
-test/e2e: build/kumactl images test/e2e/k8s/start
+test/e2e: $(E2E_DEPS_TARGETS)
+	$(MAKE) test/e2e/k8s/start
 	$(MAKE) test/e2e/test || (ret=$$?; $(MAKE) test/e2e/k8s/stop && exit $$ret)
 	$(MAKE) test/e2e/k8s/stop

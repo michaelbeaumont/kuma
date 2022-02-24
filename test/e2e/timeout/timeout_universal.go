@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -51,11 +51,9 @@ conf:
 		universalCluster = NewUniversalCluster(NewTestingT(), Kuma3, Silent)
 
 		err := NewClusterSetup().
-			Install(Kuma(core.Standalone, KumaUniversalDeployOpts...)).
+			Install(Kuma(core.Standalone)).
 			Install(YamlUniversal(faultInjection)).
 			Setup(universalCluster)
-		Expect(err).ToNot(HaveOccurred())
-		err = universalCluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		echoServerToken, err := universalCluster.GetKuma().GenerateDpToken("default", "test-server")
@@ -74,7 +72,7 @@ conf:
 		if ShouldSkipCleanup() {
 			return
 		}
-		Expect(universalCluster.DeleteKuma(KumaUniversalDeployOpts...)).To(Succeed())
+		Expect(universalCluster.DeleteKuma()).To(Succeed())
 		Expect(universalCluster.DismissCluster()).To(Succeed())
 	})
 

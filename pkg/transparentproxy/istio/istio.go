@@ -3,14 +3,13 @@ package istio
 import (
 	"os"
 
-	"github.com/kumahq/kuma/pkg/transparentproxy/istio/config"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 
-	"github.com/kumahq/kuma/pkg/transparentproxy/istio/tools/istio-iptables/pkg/constants"
-
+	"github.com/kumahq/kuma/pkg/transparentproxy/istio/config"
 	uninstall "github.com/kumahq/kuma/pkg/transparentproxy/istio/tools/istio-clean-iptables/pkg/cmd"
 	install "github.com/kumahq/kuma/pkg/transparentproxy/istio/tools/istio-iptables/pkg/cmd"
+	"github.com/kumahq/kuma/pkg/transparentproxy/istio/tools/istio-iptables/pkg/constants"
 )
 
 type IstioTransparentProxy struct {
@@ -44,6 +43,7 @@ func (tp *IstioTransparentProxy) Setup(cfg *config.TransparentProxyConfig) (stri
 	viper.Set(constants.RedirectAllDNSTraffic, cfg.RedirectAllDNSTraffic)
 	viper.Set(constants.AgentDNSListenerPort, cfg.AgentDNSListenerPort)
 	viper.Set(constants.DNSUpstreamTargetChain, cfg.DNSUpstreamTargetChain)
+	viper.Set(constants.SkipDNSConntrackZoneSplit, cfg.SkipDNSConntrackZoneSplit)
 
 	if !cfg.Verbose {
 		tp.redirectStdOutStdErr()
@@ -66,7 +66,6 @@ func (tp *IstioTransparentProxy) Setup(cfg *config.TransparentProxyConfig) (stri
 }
 
 func (tp *IstioTransparentProxy) Cleanup(dryRun, verbose bool) (string, error) {
-
 	viper.Set(constants.DryRun, dryRun)
 	viper.Set(constants.DNSUpstreamTargetChain, "")
 

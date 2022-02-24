@@ -46,6 +46,11 @@ Create chart name and version as used by the chart label.
 {{ printf "%s" (default $defaultSvcName .Values.ingress.service.name) }}
 {{- end }}
 
+{{- define "kuma.egress.serviceName" -}}
+{{- $defaultSvcName := printf "%s-egress" (include "kuma.name" .) -}}
+{{ printf "%s" (default $defaultSvcName .Values.egress.service.name) }}
+{{- end }}
+
 {{/*
 Common labels
 */}}
@@ -160,6 +165,12 @@ env:
 {{- end }}
 - name: KUMA_API_SERVER_AUTHN_LOCALHOST_IS_ADMIN
   value: "false"
+- name: KUMA_RUNTIME_KUBERNETES_SERVICE_ACCOUNT_NAME
+  value: "system:serviceaccount:{{ .Release.Namespace }}:{{ include "kuma.name" . }}-control-plane"
+{{- if .Values.experimental.meshGateway }}
+- name: KUMA_EXPERIMENTAL_MESHGATEWAY
+  value: "true"
+{{- end }}
 {{- end }}
 
 {{/*

@@ -3,7 +3,7 @@ package externalservices
 import (
 	"strings"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -25,17 +25,13 @@ networking:
   tls:
     enabled: false
 `
-
 	BeforeEach(func() {
 		cluster = NewUniversalCluster(NewTestingT(), Kuma3, Silent)
 
 		err := NewClusterSetup().
-			Install(Kuma(core.Standalone, KumaUniversalDeployOpts...)).
+			Install(Kuma(core.Standalone)).
 			Install(YamlUniversal(externalService)).
 			Setup(cluster)
-		Expect(err).ToNot(HaveOccurred())
-
-		err = cluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 
 		demoClientToken, err := cluster.GetKuma().GenerateDpToken("default", "dp-demo-client")
@@ -49,7 +45,7 @@ networking:
 		if ShouldSkipCleanup() {
 			return
 		}
-		Expect(cluster.DeleteKuma(KumaUniversalDeployOpts...)).To(Succeed())
+		Expect(cluster.DeleteKuma()).To(Succeed())
 		Expect(cluster.DismissCluster()).To(Succeed())
 	})
 

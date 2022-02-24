@@ -1,11 +1,11 @@
 linters:
   enable:
     - bodyclose
+    - contextcheck
     - gci
     - gocritic
     - gofmt
     - gomodguard
-    - govet
     - importas
     - misspell
     - unconvert
@@ -19,6 +19,7 @@ run:
   modules-download-mode: readonly
   skip-dirs-use-default: false # The default skip omits "builtin" directories, which we have.
   skip-dirs:
+  - pkg/transparentproxy/istio/tools
   - (^|/)vendored($|/)
 
 linters-settings:
@@ -83,3 +84,15 @@ issues:
     - linters:
         - staticcheck
       text: "SA1019: package sigs.k8s.io/controller-runtime/pkg/client/fake is deprecated" # https://github.com/kumahq/kuma/issues/2460
+    - linters:
+        - staticcheck
+      text: "SA1019: l.ReusePort is deprecated"
+    - linters: # AdminPort is deprecated, but it's used to support backwards compatibility
+        - staticcheck
+      text: "SA1019: cfg.Runtime.Kubernetes.Injector.SidecarContainer.AdminPort is deprecated: Use KUMA_BOOTSTRAP_SERVER_PARAMS_ADMIN_PORT instead."
+    - linters: # AdminPort is deprecated, but it's used to support backwards compatibility
+        - staticcheck
+      text: "SA1019: kumaCPConfig.Runtime.Kubernetes.Injector.SidecarContainer.AdminPort is deprecated: Use KUMA_BOOTSTRAP_SERVER_PARAMS_ADMIN_PORT instead."
+    - linters: # AdminPort is deprecated, but it's used to support backwards compatibility
+        - staticcheck
+      text: "SA1019: c.Runtime.Kubernetes.Injector.SidecarContainer.AdminPort is deprecated: Use KUMA_BOOTSTRAP_SERVER_PARAMS_ADMIN_PORT instead."

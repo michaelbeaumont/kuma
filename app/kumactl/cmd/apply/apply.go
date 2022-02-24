@@ -4,8 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	rest_types "github.com/kumahq/kuma/pkg/core/resources/model/rest"
 	"github.com/kumahq/kuma/pkg/core/resources/registry"
 	"github.com/kumahq/kuma/pkg/core/resources/store"
+	"github.com/kumahq/kuma/pkg/plugins/runtime/gateway/register"
 	"github.com/kumahq/kuma/pkg/util/template"
 )
 
@@ -38,6 +40,8 @@ type applyContext struct {
 }
 
 func NewApplyCmd(pctx *kumactl_cmd.RootContext) *cobra.Command {
+	register.RegisterGatewayTypes() // allow applying experimental Gateway types
+
 	ctx := &applyContext{RootContext: pctx}
 	cmd := &cobra.Command{
 		Use:   "apply",
@@ -66,7 +70,7 @@ $ kumactl apply -f https://example.com/resource.yaml
 			var err error
 
 			if ctx.args.file == "-" {
-				b, err = ioutil.ReadAll(cmd.InOrStdin())
+				b, err = io.ReadAll(cmd.InOrStdin())
 				if err != nil {
 					return err
 				}
@@ -88,12 +92,12 @@ $ kumactl apply -f https://example.com/resource.yaml
 						return errors.Wrap(err, "error while retrieving URL")
 					}
 					defer resp.Body.Close()
-					b, err = ioutil.ReadAll(resp.Body)
+					b, err = io.ReadAll(resp.Body)
 					if err != nil {
 						return errors.Wrap(err, "error while reading provided file")
 					}
 				} else {
-					b, err = ioutil.ReadFile(ctx.args.file)
+					b, err = os.ReadFile(ctx.args.file)
 					if err != nil {
 						return errors.Wrap(err, "error while reading provided file")
 					}

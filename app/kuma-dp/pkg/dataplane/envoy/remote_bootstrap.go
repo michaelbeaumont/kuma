@@ -6,16 +6,19 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	net_url "net/url"
+	"os"
 	"strings"
 
+	envoy_bootstrap_v3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	"github.com/pkg/errors"
 	"github.com/sethvargo/go-retry"
 
 	kuma_dp "github.com/kumahq/kuma/pkg/config/app/kuma-dp"
 	"github.com/kumahq/kuma/pkg/core"
+	util_proto "github.com/kumahq/kuma/pkg/util/proto"
 	kuma_version "github.com/kumahq/kuma/pkg/version"
 	"github.com/kumahq/kuma/pkg/xds/bootstrap/types"
 )
@@ -42,17 +45,17 @@ func IsInvalidRequestErr(err error) bool {
 	return strings.HasPrefix(err.Error(), "Invalid request: ")
 }
 
-func (b *remoteBootstrap) Generate(url string, cfg kuma_dp.Config, params BootstrapParams) ([]byte, error) {
+func (b *remoteBootstrap) Generate(url string, cfg kuma_dp.Config, params BootstrapParams) (*envoy_bootstrap_v3.Bootstrap, []byte, error) {
 	bootstrapUrl, err := net_url.Parse(url)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if bootstrapUrl.Scheme == "https" {
 		if cfg.ControlPlane.CaCert != "" {
 			certPool := x509.NewCertPool()
 			if ok := certPool.AppendCertsFromPEM([]byte(cfg.ControlPlane.CaCert)); !ok {
-				return nil, errors.New("could not add certificate")
+				return nil, nil, errors.New("could not add certificate")
 			}
 			b.client.Transport = &http.Transport{
 				TLSClientConfig: &tls.Config{
@@ -64,11 +67,7 @@ func (b *remoteBootstrap) Generate(url string, cfg kuma_dp.Config, params Bootst
 		}
 	}
 
-	backoff, err := retry.NewConstant(cfg.ControlPlane.Retry.Backoff)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not create retry backoff")
-	}
-	backoff = retry.WithMaxDuration(cfg.ControlPlane.Retry.MaxDuration, backoff)
+	backoff := retry.WithMaxDuration(cfg.ControlPlane.Retry.MaxDuration, retry.NewConstant(cfg.ControlPlane.Retry.Backoff))
 	var respBytes []byte
 	err = retry.Do(context.Background(), backoff, func(ctx context.Context) error {
 		log.Info("trying to fetch bootstrap configuration from the Control Plane")
@@ -89,9 +88,14 @@ func (b *remoteBootstrap) Generate(url string, cfg kuma_dp.Config, params Bootst
 		return retry.RetryableError(err)
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return respBytes, nil
+
+	bootstrap := &envoy_bootstrap_v3.Bootstrap{}
+	if err := util_proto.FromYAML(respBytes, bootstrap); err != nil {
+		return nil, nil, err
+	}
+	return bootstrap, respBytes, nil
 }
 
 func (b *remoteBootstrap) requestForBootstrap(url *net_url.URL, cfg kuma_dp.Config, params BootstrapParams) ([]byte, error) {
@@ -106,7 +110,7 @@ func (b *remoteBootstrap) requestForBootstrap(url *net_url.URL, cfg kuma_dp.Conf
 	}
 	token := ""
 	if cfg.DataplaneRuntime.TokenPath != "" {
-		tokenData, err := ioutil.ReadFile(cfg.DataplaneRuntime.TokenPath)
+		tokenData, err := os.ReadFile(cfg.DataplaneRuntime.TokenPath)
 		if err != nil {
 			return nil, err
 		}
@@ -152,7 +156,7 @@ func (b *remoteBootstrap) requestForBootstrap(url *net_url.URL, cfg kuma_dp.Conf
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, errors.Wrapf(err, "Unable to read the response with status code: %d. Make sure you are using https URL", resp.StatusCode)
 		}
@@ -167,7 +171,7 @@ func (b *remoteBootstrap) requestForBootstrap(url *net_url.URL, cfg kuma_dp.Conf
 		}
 		return nil, errors.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not read the body of the response")
 	}

@@ -41,6 +41,7 @@ type kumaDeploymentOptions struct {
 	noHelmOpts           []string
 	env                  map[string]string
 	ingress              bool
+	egress               bool
 	cni                  bool
 	cpReplicas           int
 	hdsDisabled          bool
@@ -53,7 +54,7 @@ type kumaDeploymentOptions struct {
 
 func (k *kumaDeploymentOptions) apply(opts ...KumaDeploymentOption) {
 	// Set defaults.
-	k.isipv6 = IsIPv6()
+	k.isipv6 = Config.IPV6
 	k.installationMode = KumactlInstallationMode
 	k.env = map[string]string{}
 	k.meshUpdateFuncs = map[string][]func(*mesh_proto.Mesh) *mesh_proto.Mesh{}
@@ -82,30 +83,31 @@ type appDeploymentOptions struct {
 	verbose *bool
 
 	// app specific
-	namespace       string
-	appname         string
-	name            string
-	appYaml         string
-	appArgs         []string
-	token           string
-	transparent     bool
-	builtindns      *bool // true by default
-	protocol        string
-	serviceName     string
-	serviceVersion  string
-	serviceInstance string
-	mesh            string
-	dpVersion       string
-	kumactlFlow     bool
-	concurrency     int
-	omitDataplane   bool
-	proxyOnly       bool
-	serviceProbe    bool
+	namespace         string
+	appname           string
+	name              string
+	appYaml           string
+	appArgs           []string
+	token             string
+	transparent       bool
+	builtindns        *bool // true by default
+	protocol          string
+	serviceName       string
+	serviceVersion    string
+	serviceInstance   string
+	mesh              string
+	dpVersion         string
+	kumactlFlow       bool
+	concurrency       int
+	omitDataplane     bool
+	proxyOnly         bool
+	serviceProbe      bool
+	reachableServices []string
 }
 
 func (d *appDeploymentOptions) apply(opts ...AppDeploymentOption) {
 	// Set defaults.
-	d.isipv6 = IsIPv6()
+	d.isipv6 = Config.IPV6
 
 	// Apply options.
 	for _, o := range opts {
@@ -245,9 +247,23 @@ func WithEnv(name, value string) KumaDeploymentOption {
 	})
 }
 
+func WithEnvs(entries map[string]string) KumaDeploymentOption {
+	return KumaOptionFunc(func(o *kumaDeploymentOptions) {
+		for k, v := range entries {
+			o.env[k] = v
+		}
+	})
+}
+
 func WithIngress() KumaDeploymentOption {
 	return KumaOptionFunc(func(o *kumaDeploymentOptions) {
 		o.ingress = true
+	})
+}
+
+func WithEgress() KumaDeploymentOption {
+	return KumaOptionFunc(func(o *kumaDeploymentOptions) {
+		o.egress = true
 	})
 }
 
@@ -266,12 +282,14 @@ func WithGlobalAddress(address string) KumaDeploymentOption {
 // WithCtlOpt allows arbitrary options to be passed to kuma, which is important
 // for using test/framework in other libraries where additional options may have
 // been added.
-func WithCtlOpt(name, value string) KumaDeploymentOption {
+func WithCtlOpts(opts map[string]string) KumaDeploymentOption {
 	return KumaOptionFunc(func(o *kumaDeploymentOptions) {
 		if o.ctlOpts == nil {
 			o.ctlOpts = map[string]string{}
 		}
-		o.ctlOpts[name] = value
+		for name, value := range opts {
+			o.ctlOpts[name] = value
+		}
 	})
 }
 
@@ -407,6 +425,12 @@ func WithConcurrency(concurrency int) AppDeploymentOption {
 	})
 }
 
+func WithReachableServices(services ...string) AppDeploymentOption {
+	return AppOptionFunc(func(o *appDeploymentOptions) {
+		o.reachableServices = services
+	})
+}
+
 type Deployment interface {
 	Name() string
 	Deploy(cluster Cluster) error
@@ -421,7 +445,7 @@ type Cluster interface {
 	DeployKuma(mode core.CpMode, opts ...KumaDeploymentOption) error
 	GetKuma() ControlPlane
 	VerifyKuma() error
-	DeleteKuma(opts ...KumaDeploymentOption) error
+	DeleteKuma() error
 	InjectDNS(namespace ...string) error
 	GetKumactlOptions() *KumactlOptions
 	Deployment(name string) Deployment
@@ -449,8 +473,9 @@ type ControlPlane interface {
 	GetKumaCPLogs() (string, error)
 	GetMetrics() (string, error)
 	GetKDSServerAddress() string
-	GetGlobaStatusAPI() string
+	GetGlobalStatusAPI() string
 	GetAPIServerAddress() string
 	GenerateDpToken(mesh, serviceName string) (string, error)
 	GenerateZoneIngressToken(zone string) (string, error)
+	GenerateZoneEgressToken(zone string) (string, error)
 }

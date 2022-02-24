@@ -7,7 +7,7 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -17,17 +17,6 @@ import (
 )
 
 func AppDeploymentWithHelmChart() {
-	namespaceWithSidecarInjection := func(namespace string) string {
-		return fmt.Sprintf(`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: %s
-  annotations:
-    kuma.io/sidecar-injection: "enabled"
-`, namespace)
-	}
-
 	defaultMesh := `
 apiVersion: kuma.io/v1alpha1
 kind: Mesh
@@ -36,37 +25,31 @@ metadata:
 `
 
 	var cluster Cluster
-	var deployOptsFuncs = KumaK8sDeployOpts
 
 	BeforeEach(func() {
-		c, err := NewK8sClusterWithTimeout(
-			NewTestingT(),
-			Kuma1,
-			Silent,
-			6*time.Second)
-		Expect(err).ToNot(HaveOccurred())
-
-		cluster = c.WithRetries(60)
+		cluster = NewK8sCluster(NewTestingT(), Kuma1, Silent).
+			WithTimeout(6 * time.Second).
+			WithRetries(60)
 
 		releaseName := fmt.Sprintf(
 			"kuma-%s",
 			strings.ToLower(random.UniqueId()),
 		)
-		deployOptsFuncs = append(deployOptsFuncs,
-			WithInstallationMode(HelmInstallationMode),
-			WithHelmReleaseName(releaseName),
-			WithSkipDefaultMesh(true), // it's common case for HELM deployments that Mesh is also managed by HELM therefore it's not created by default
-			WithCPReplicas(3),         // test HA capability
-			WithCNI())
 
-		err = NewClusterSetup().
-			Install(Kuma(core.Standalone, deployOptsFuncs...)).
+		err := NewClusterSetup().
+			Install(Kuma(core.Standalone,
+				WithInstallationMode(HelmInstallationMode),
+				WithHelmReleaseName(releaseName),
+				WithSkipDefaultMesh(true), // it's common case for HELM deployments that Mesh is also managed by HELM therefore it's not created by default
+				WithCPReplicas(3),         // test HA capability
+				WithCNI(),
+			)).
 			Install(YamlK8s(defaultMesh)).
 			Setup(cluster)
 		Expect(err).ToNot(HaveOccurred())
 
 		err = NewClusterSetup().
-			Install(YamlK8s(namespaceWithSidecarInjection(TestNamespace))).
+			Install(NamespaceWithSidecarInjection(TestNamespace)).
 			Install(DemoClientK8s("default")).
 			Install(testserver.Install()).
 			Setup(cluster)
@@ -80,7 +63,7 @@ metadata:
 		// tear down apps
 		Expect(cluster.DeleteNamespace(TestNamespace)).To(Succeed())
 		// tear down Kuma
-		Expect(cluster.DeleteKuma(deployOptsFuncs...)).To(Succeed())
+		Expect(cluster.DeleteKuma()).To(Succeed())
 		// tear down cluster
 		Expect(cluster.DismissCluster()).To(Succeed())
 	})

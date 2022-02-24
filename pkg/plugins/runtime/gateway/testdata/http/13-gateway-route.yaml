@@ -152,6 +152,10 @@ Listeners:
               initialStreamWindowSize: 65536
               maxConcurrentStreams: 100
             httpFilters:
+            - name: envoy.filters.http.local_ratelimit
+              typedConfig:
+                '@type': type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                statPrefix: rate_limit
             - name: gzip-compress
               typedConfig:
                 '@type': type.googleapis.com/envoy.extensions.filters.http.compressor.v3.Compressor
@@ -192,11 +196,19 @@ Routes:
       virtualHosts:
       - domains:
         - echo.example.com
-        name: edge-gateway:HTTP:8080:echo.example.com
+        name: echo.example.com
         routes:
         - match:
             path: /match/bar
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 15s
             weightedClusters:
               clusters:
               - name: echo-exact-ad4e3a31db1bf217
@@ -205,6 +217,14 @@ Routes:
         - match:
             path: /match/baz
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 15s
             weightedClusters:
               clusters:
               - name: echo-prefix-d0e5ba63b0c9b9f0
@@ -213,6 +233,14 @@ Routes:
         - match:
             prefix: /match/baz/
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 15s
             weightedClusters:
               clusters:
               - name: echo-prefix-d0e5ba63b0c9b9f0
@@ -223,6 +251,14 @@ Routes:
               googleRe2: {}
               regex: /match/foo
           route:
+            retryPolicy:
+              numRetries: 5
+              perTryTimeout: 16s
+              retryBackOff:
+                baseInterval: 0.025s
+                maxInterval: 0.250s
+              retryOn: gateway-error,connect-failure,refused-stream
+            timeout: 15s
             weightedClusters:
               clusters:
               - name: echo-regex-627905e7b1c2eb33

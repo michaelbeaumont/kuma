@@ -2,10 +2,10 @@ package config_test
 
 import (
 	"bytes"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/util/test"
@@ -30,7 +30,7 @@ var _ = Describe("kumactl config view", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// when
-		expected, err := ioutil.ReadFile(filepath.Join("testdata", "config-view.golden.yaml"))
+		expected, err := os.ReadFile(filepath.Join("testdata", "config-view.golden.yaml"))
 		// then
 		Expect(err).ToNot(HaveOccurred())
 		// and

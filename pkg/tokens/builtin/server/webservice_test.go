@@ -2,23 +2,26 @@ package server_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"time"
 
 	"github.com/emicklei/go-restful"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
 
+	"github.com/kumahq/kuma/pkg/core/tokens"
 	"github.com/kumahq/kuma/pkg/tokens/builtin/access"
 	"github.com/kumahq/kuma/pkg/tokens/builtin/issuer"
 	"github.com/kumahq/kuma/pkg/tokens/builtin/server"
 	"github.com/kumahq/kuma/pkg/tokens/builtin/server/types"
+	"github.com/kumahq/kuma/pkg/tokens/builtin/zone"
+	zone_access "github.com/kumahq/kuma/pkg/tokens/builtin/zone/access"
 	"github.com/kumahq/kuma/pkg/tokens/builtin/zoneingress"
 )
 
@@ -28,12 +31,8 @@ type staticTokenIssuer struct {
 
 var _ issuer.DataplaneTokenIssuer = &staticTokenIssuer{}
 
-func (s *staticTokenIssuer) Generate(identity issuer.DataplaneIdentity) (issuer.Token, error) {
+func (s *staticTokenIssuer) Generate(context.Context, issuer.DataplaneIdentity, time.Duration) (tokens.Token, error) {
 	return s.resp, nil
-}
-
-func (s *staticTokenIssuer) Validate(token issuer.Token, meshName string) (issuer.DataplaneIdentity, error) {
-	return issuer.DataplaneIdentity{}, errors.New("not implemented")
 }
 
 type zoneIngressStaticTokenIssuer struct {
@@ -41,12 +40,17 @@ type zoneIngressStaticTokenIssuer struct {
 
 var _ zoneingress.TokenIssuer = &zoneIngressStaticTokenIssuer{}
 
-func (z *zoneIngressStaticTokenIssuer) Generate(identity zoneingress.Identity) (zoneingress.Token, error) {
+func (z *zoneIngressStaticTokenIssuer) Generate(ctx context.Context, identity zoneingress.Identity, validFor time.Duration) (zoneingress.Token, error) {
 	return fmt.Sprintf("token-for-%s", identity.Zone), nil
 }
 
-func (z *zoneIngressStaticTokenIssuer) Validate(token zoneingress.Token) (zoneingress.Identity, error) {
-	return zoneingress.Identity{}, errors.New("not implemented")
+type zoneStaticTokenIssuer struct {
+}
+
+var _ zone.TokenIssuer = &zoneStaticTokenIssuer{}
+
+func (z *zoneStaticTokenIssuer) Generate(ctx context.Context, identity zone.Identity, validFor time.Duration) (zone.Token, error) {
+	return fmt.Sprintf("token-for-%s", identity.Zone), nil
 }
 
 var _ = Describe("Dataplane Token Webservice", func() {
@@ -55,7 +59,13 @@ var _ = Describe("Dataplane Token Webservice", func() {
 	var url string
 
 	BeforeEach(func() {
-		ws := server.NewWebservice(&staticTokenIssuer{credentials}, &zoneIngressStaticTokenIssuer{}, &access.NoopDpTokenAccess{})
+		ws := server.NewWebservice(
+			&staticTokenIssuer{credentials},
+			&zoneIngressStaticTokenIssuer{},
+			&zoneStaticTokenIssuer{},
+			&access.NoopDpTokenAccess{},
+			&zone_access.NoopZoneTokenAccess{},
+		)
 
 		container := restful.NewContainer()
 		container.Add(ws)
@@ -89,7 +99,7 @@ var _ = Describe("Dataplane Token Webservice", func() {
 		Expect(resp.StatusCode).To(Equal(200))
 
 		// when
-		respBody, err := ioutil.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
 
 		// then
 		Expect(err).ToNot(HaveOccurred())

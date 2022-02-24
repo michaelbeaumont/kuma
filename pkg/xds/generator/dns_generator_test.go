@@ -1,11 +1,10 @@
 package generator_test
 
 import (
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -39,11 +38,16 @@ var _ = Describe("DNSGenerator", func() {
 						},
 						Spec: &mesh_proto.Mesh{},
 					},
+					VIPDomains: []model.VIPDomains{
+						{Address: "240.0.0.1", Domains: []string{"httpbin.mesh"}},
+						{Address: "240.0.0.0", Domains: []string{"backend.test-ns.svc.8080.mesh", "backend_test-ns_svc_8080.mesh"}},
+						{Address: "2001:db8::ff00:42:8329", Domains: []string{"frontend.test-ns.svc.8080.mesh", "frontend_test-ns_svc_8080.mesh"}}, // this is ignored because there is no outbounds for it
+					},
 				},
 			}
 
 			dataplane := mesh_proto.Dataplane{}
-			dpBytes, err := ioutil.ReadFile(filepath.Join("testdata", "dns", given.dataplaneFile))
+			dpBytes, err := os.ReadFile(filepath.Join("testdata", "dns", given.dataplaneFile))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(util_proto.FromYAML(dpBytes, &dataplane)).To(Succeed())
 			proxy := &model.Proxy{
@@ -55,16 +59,11 @@ var _ = Describe("DNSGenerator", func() {
 					Spec: &dataplane,
 				},
 				APIVersion: envoy_common.APIV3,
-				Routing: model.Routing{
-					VipDomains: []model.VIPDomains{
-						{Address: "240.0.0.1", Domains: []string{"httpbin.mesh"}},
-						{Address: "240.0.0.0", Domains: []string{"backend.test-ns.svc.8080.mesh", "backend_test-ns_svc_8080.mesh"}},
-						{Address: "2001:db8::ff00:42:8329", Domains: []string{"frontend.test-ns.svc.8080.mesh", "frontend_test-ns_svc_8080.mesh"}},
-					},
-				},
+				Routing:    model.Routing{},
 				Metadata: &model.DataplaneMetadata{
 					DNSPort:      53001,
 					EmptyDNSPort: 53002,
+					Version:      &mesh_proto.Version{Envoy: &mesh_proto.EnvoyVersion{Version: "1.20.0"}},
 				},
 			}
 

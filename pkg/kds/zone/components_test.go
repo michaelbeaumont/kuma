@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -46,25 +46,20 @@ var _ = Describe("Zone Sync", func() {
 	newPolicySink := func(zoneName string, resourceSyncer sync_store.ResourceSyncer, cs *grpc.MockClientStream, rt core_runtime.Runtime) kds_client.KDSSink {
 		return kds_client.NewKDSSink(core.Log.WithName("kds-sink"), registry.Global().ObjectTypes(model.HasKDSFlag(model.ConsumedByZone)), kds_client.NewKDSStream(cs, zoneName, ""), zone.Callbacks(rt, resourceSyncer, false, zoneName, nil))
 	}
-	ingressFunc := func(zone string) *mesh_proto.Dataplane {
-		return &mesh_proto.Dataplane{
-			Networking: &mesh_proto.Dataplane_Networking{
+	ingressFunc := func(zone string) *mesh_proto.ZoneIngress {
+		return &mesh_proto.ZoneIngress{
+			Zone: zone,
+			Networking: &mesh_proto.ZoneIngress_Networking{
 				Address: "192.168.0.1",
-				Ingress: &mesh_proto.Dataplane_Networking_Ingress{
-					AvailableServices: []*mesh_proto.Dataplane_Networking_Ingress_AvailableService{{
-						Tags: map[string]string{
-							mesh_proto.ServiceTag: "backend",
-							mesh_proto.ZoneTag:    fmt.Sprintf("not-%s", zone),
-						},
-					}},
-				},
-				Inbound: []*mesh_proto.Dataplane_Networking_Inbound{{
-					Port: 1212,
+				Port:    1212,
+			},
+			AvailableServices: []*mesh_proto.ZoneIngress_AvailableService{
+				{
 					Tags: map[string]string{
-						mesh_proto.ZoneTag:    zone,
-						mesh_proto.ServiceTag: "ingress",
+						mesh_proto.ServiceTag: "backend",
+						mesh_proto.ZoneTag:    fmt.Sprintf("not-%s", zone),
 					},
-				}},
+				},
 			},
 		}
 	}
@@ -80,7 +75,7 @@ var _ = Describe("Zone Sync", func() {
 
 		kdsCtx := kds_context.DefaultContext(manager.NewResourceManager(globalStore), "global")
 		wg.Add(1)
-		serverStream := setup.StartServer(globalStore, wg, "global", registry.Global().ObjectTypes(model.HasKDSFlag(model.ConsumedByZone)), kdsCtx.GlobalProvidedFilter)
+		serverStream := setup.StartServer(globalStore, wg, "global", registry.Global().ObjectTypes(model.HasKDSFlag(model.ConsumedByZone)), kdsCtx.GlobalProvidedFilter, kdsCtx.GlobalResourceMapper)
 
 		stop := make(chan struct{})
 		clientStream := serverStream.ClientStream(stop)
@@ -124,21 +119,21 @@ var _ = Describe("Zone Sync", func() {
 
 	It("should sync ingresses", func() {
 		// create Ingress for current zone, shouldn't be synced
-		err := globalStore.Create(context.Background(), &mesh.DataplaneResource{Spec: ingressFunc(zoneName)}, store.CreateByKey("dp-1", "mesh-1"))
+		err := globalStore.Create(context.Background(), &mesh.ZoneIngressResource{Spec: ingressFunc(zoneName)}, store.CreateByKey("dp-1", model.NoMesh))
 		Expect(err).ToNot(HaveOccurred())
-		err = globalStore.Create(context.Background(), &mesh.DataplaneResource{Spec: ingressFunc("another-zone-1")}, store.CreateByKey("dp-2", "mesh-1"))
+		err = globalStore.Create(context.Background(), &mesh.ZoneIngressResource{Spec: ingressFunc("another-zone-1")}, store.CreateByKey("dp-2", model.NoMesh))
 		Expect(err).ToNot(HaveOccurred())
-		err = globalStore.Create(context.Background(), &mesh.DataplaneResource{Spec: ingressFunc("another-zone-2")}, store.CreateByKey("dp-3", "mesh-1"))
+		err = globalStore.Create(context.Background(), &mesh.ZoneIngressResource{Spec: ingressFunc("another-zone-2")}, store.CreateByKey("dp-3", model.NoMesh))
 		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func() int {
-			actual := mesh.DataplaneResourceList{}
+			actual := mesh.ZoneIngressResourceList{}
 			err := zoneStore.List(context.Background(), &actual)
 			Expect(err).ToNot(HaveOccurred())
 			return len(actual.Items)
 		}, "5s", "100ms").Should(Equal(2))
 
-		actual := mesh.DataplaneResourceList{}
+		actual := mesh.ZoneIngressResourceList{}
 		err = zoneStore.List(context.Background(), &actual)
 		Expect(err).ToNot(HaveOccurred())
 	})
@@ -147,9 +142,8 @@ var _ = Describe("Zone Sync", func() {
 		excludeTypes := map[model.ResourceType]bool{
 			mesh.DataplaneInsightType:  true,
 			mesh.DataplaneOverviewType: true,
-			mesh.GatewayType:           true, // Gateways are zone-local.
-			mesh.GatewayRouteType:      true, // GatewayRoutes are zone-local because Gateways are (at least for now).
 			mesh.ServiceOverviewType:   true,
+			mesh.DataplaneType:         true,
 			sample.TrafficRouteType:    true,
 		}
 
@@ -158,7 +152,7 @@ var _ = Describe("Zone Sync", func() {
 			return !excludeTypes[descriptor.Name]
 		}))
 
-		// plus 2 global-scope types
+		// plus 4 global-scope types
 		extraTypes := []model.ResourceType{
 			mesh.MeshType,
 			mesh.ZoneIngressType,

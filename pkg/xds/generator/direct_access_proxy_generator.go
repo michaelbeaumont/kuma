@@ -39,7 +39,7 @@ func (_ DirectAccessProxyGenerator) Generate(ctx xds_context.Context, proxy *cor
 	sourceService := proxy.Dataplane.Spec.GetIdentifyingService()
 	meshName := ctx.Mesh.Resource.GetMeta().GetName()
 
-	endpoints, err := directAccessEndpoints(proxy.Dataplane, ctx.Mesh.Dataplanes, ctx.Mesh.Resource)
+	endpoints, err := directAccessEndpoints(proxy.Dataplane, ctx.Mesh.Resources.Dataplanes(), ctx.Mesh.Resource)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,14 @@ func (_ DirectAccessProxyGenerator) Generate(ctx xds_context.Context, proxy *cor
 			Configure(envoy_listeners.OutboundListener(name, endpoint.Address, endpoint.Port, core_xds.SocketAddressProtocolTCP)).
 			Configure(envoy_listeners.FilterChain(envoy_listeners.NewFilterChainBuilder(proxy.APIVersion).
 				Configure(envoy_listeners.TcpProxy(name, envoy_common.NewCluster(envoy_common.WithService("direct_access")))).
-				Configure(envoy_listeners.NetworkAccessLog(meshName, envoy_common.TrafficDirectionOutbound, sourceService, name, proxy.Policies.Logs[core_mesh.PassThroughService], proxy)))).
+				Configure(envoy_listeners.NetworkAccessLog(
+					meshName,
+					envoy_common.TrafficDirectionOutbound,
+					sourceService,
+					name,
+					ctx.Mesh.GetLoggingBackend(proxy.Policies.TrafficLogs[core_mesh.PassThroughService]),
+					proxy,
+				)))).
 			Configure(envoy_listeners.TransparentProxying(proxy.Dataplane.Spec.Networking.GetTransparentProxying())).
 			Build()
 		if err != nil {
@@ -65,7 +72,7 @@ func (_ DirectAccessProxyGenerator) Generate(ctx xds_context.Context, proxy *cor
 
 	directAccessCluster, err := envoy_clusters.NewClusterBuilder(proxy.APIVersion).
 		Configure(envoy_clusters.PassThroughCluster("direct_access")).
-		Configure(envoy_clusters.UnknownDestinationClientSideMTLS(ctx)).
+		Configure(envoy_clusters.UnknownDestinationClientSideMTLS(ctx.Mesh.Resource)).
 		Build()
 	if err != nil {
 		return nil, errors.Wrapf(err, "could not generate cluster: direct_access")
@@ -95,11 +102,6 @@ func directAccessEndpoints(dataplane *core_mesh.DataplaneResource, other *core_m
 		if dp.Meta.GetName() == dataplane.Meta.GetName() { // skip itself
 			continue
 		}
-		// ingress doesn't have inbounds[0].Tags[ServiceTag] set, so right now
-		// there is no way to create direct access outbound to ingress
-		if dp.Spec.IsIngress() {
-			continue
-		}
 		inbounds, err := manager_dataplane.AdditionalInbounds(dp, mesh)
 		if err != nil {
 			return nil, err
@@ -122,12 +124,8 @@ func directAccessEndpoints(dataplane *core_mesh.DataplaneResource, other *core_m
 }
 
 func takenEndpoints(dataplane *core_mesh.DataplaneResource) (map[Endpoint]bool, error) {
-	ofaces, err := dataplane.Spec.GetNetworking().GetOutboundInterfaces()
-	if err != nil {
-		return nil, err
-	}
 	takenEndpoints := map[Endpoint]bool{}
-	for _, oface := range ofaces {
+	for _, oface := range dataplane.Spec.GetNetworking().GetOutboundInterfaces() {
 		endpoint := Endpoint{
 			Address: oface.DataplaneIP,
 			Port:    oface.DataplanePort,

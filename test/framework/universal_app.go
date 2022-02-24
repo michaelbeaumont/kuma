@@ -16,6 +16,7 @@ import (
 	"github.com/pkg/errors"
 
 	util_net "github.com/kumahq/kuma/pkg/util/net"
+	"github.com/kumahq/kuma/test/framework/utils"
 )
 
 type AppMode string
@@ -23,6 +24,7 @@ type AppMode string
 const (
 	AppModeCP              = "kuma-cp"
 	AppIngress             = "ingress"
+	AppEgress              = "egress"
 	AppModeEchoServer      = "echo-server"
 	AppModeHttpsEchoServer = "https-echo-server"
 	sshPort                = "22"
@@ -48,6 +50,13 @@ networking:
   address: {{ address }}
   advertisedAddress: %s
   advertisedPort: %d
+  port: %d
+`
+	ZoneEgress = `
+type: ZoneEgress
+name: egress
+networking:
+  address: {{ address }}
   port: %d
 `
 
@@ -171,20 +180,21 @@ networking:
     redirectPortInbound: %s
     redirectPortInboundV6: %s
     redirectPortOutbound: %s
+    reachableServices: [%s]
 `
 )
 
 var defaultDockerOptions = docker.RunOptions{
 	Command: nil,
 	Detach:  true,
-	//Entrypoint:           "",
+	// Entrypoint:           "",
 	EnvironmentVariables: nil,
 	Init:                 false,
-	//Name:                 "",
+	// Name:                 "",
 	Privileged: false,
 	Remove:     true,
 	Tty:        false,
-	//User:                 "",
+	// User:                 "",
 	Volumes:      nil,
 	OtherOptions: []string{},
 	Logger:       nil,
@@ -193,7 +203,7 @@ var defaultDockerOptions = docker.RunOptions{
 type UniversalApp struct {
 	t            testing.TestingT
 	mainApp      *SshApp
-	mainAppEnv   []string
+	mainAppEnv   map[string]string
 	mainAppArgs  []string
 	dpApp        *SshApp
 	ports        map[string]string
@@ -230,7 +240,7 @@ func NewUniversalApp(t testing.TestingT, clusterName, dpName string, mode AppMod
 		opts.OtherOptions = append(opts.OtherOptions, "--sysctl", "net.ipv6.conf.all.disable_ipv6=1")
 	}
 	opts.OtherOptions = append(opts.OtherOptions, app.publishPortsForDocker(isipv6)...)
-	container, err := docker.RunAndGetIDE(t, GetUniversalImage(), &opts)
+	container, err := docker.RunAndGetIDE(t, Config.GetUniversalImage(), &opts)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +249,7 @@ func NewUniversalApp(t testing.TestingT, clusterName, dpName string, mode AppMod
 
 	retry.DoWithRetry(app.t, "get IP "+app.container, DefaultRetries, DefaultTimeout,
 		func() (string, error) {
-			app.ip, err = app.getIP(IsIPv6())
+			app.ip, err = app.getIP(Config.IPV6)
 			if err != nil {
 				return "Unable to get Container IP", err
 			}
@@ -318,7 +328,7 @@ func (s *UniversalApp) ReStart() error {
 	return nil
 }
 
-func (s *UniversalApp) CreateMainApp(env []string, args []string) {
+func (s *UniversalApp) CreateMainApp(env map[string]string, args []string) {
 	s.mainAppEnv = env
 	s.mainAppArgs = args
 	s.mainApp = NewSshApp(s.verbose, s.ports[sshPort], env, args)
@@ -326,7 +336,7 @@ func (s *UniversalApp) CreateMainApp(env []string, args []string) {
 
 func (s *UniversalApp) OverrideDpVersion(version string) error {
 	// It is important to store installation package in /tmp/kuma/, not /tmp/ otherwise root was taking over /tmp/ and Kuma DP could not store /tmp files
-	err := NewSshApp(s.verbose, s.ports[sshPort], []string{}, []string{
+	err := NewSshApp(s.verbose, s.ports[sshPort], nil, []string{
 		"wget",
 		fmt.Sprintf("https://download.konghq.com/mesh-alpine/kuma-%s-ubuntu-amd64.tar.gz", version),
 		"-O",
@@ -336,7 +346,7 @@ func (s *UniversalApp) OverrideDpVersion(version string) error {
 		return err
 	}
 
-	err = NewSshApp(s.verbose, s.ports[sshPort], []string{}, []string{
+	err = NewSshApp(s.verbose, s.ports[sshPort], nil, []string{
 		"mkdir",
 		"-p",
 		"/tmp/kuma/",
@@ -345,7 +355,7 @@ func (s *UniversalApp) OverrideDpVersion(version string) error {
 		return err
 	}
 
-	err = NewSshApp(s.verbose, s.ports[sshPort], []string{}, []string{
+	err = NewSshApp(s.verbose, s.ports[sshPort], nil, []string{
 		"tar",
 		"xvzf",
 		fmt.Sprintf("/tmp/kuma-%s-ubuntu-amd64.tar.gz", version),
@@ -356,7 +366,7 @@ func (s *UniversalApp) OverrideDpVersion(version string) error {
 		return err
 	}
 
-	err = NewSshApp(s.verbose, s.ports[sshPort], []string{}, []string{
+	err = NewSshApp(s.verbose, s.ports[sshPort], nil, []string{
 		"cp",
 		fmt.Sprintf("/tmp/kuma/kuma-%s/bin/kuma-dp", version),
 		"/usr/bin/kuma-dp",
@@ -365,7 +375,7 @@ func (s *UniversalApp) OverrideDpVersion(version string) error {
 		return err
 	}
 
-	err = NewSshApp(s.verbose, s.ports[sshPort], []string{}, []string{
+	err = NewSshApp(s.verbose, s.ports[sshPort], nil, []string{
 		"cp",
 		fmt.Sprintf("/tmp/kuma/kuma-%s/bin/envoy", version),
 		"/usr/local/bin/envoy",
@@ -377,9 +387,14 @@ func (s *UniversalApp) OverrideDpVersion(version string) error {
 	return nil
 }
 
-func (s *UniversalApp) CreateDP(token, cpAddress, name, mesh, ip, dpyaml string, builtindns, ingress bool, concurrency int) {
+func (s *UniversalApp) CreateDP(
+	token, cpAddress, name, mesh, ip, dpyaml string,
+	builtindns bool,
+	proxyType string,
+	concurrency int,
+) {
 	// create the token file on the app container
-	err := NewSshApp(s.verbose, s.ports[sshPort], []string{}, []string{"printf ", "\"" + token + "\"", ">", "/kuma/token-" + name}).Run()
+	err := NewSshApp(s.verbose, s.ports[sshPort], nil, []string{"printf ", "\"" + token + "\"", ">", "/kuma/token-" + name}).Run()
 	if err != nil {
 		panic(err)
 	}
@@ -394,7 +409,7 @@ func (s *UniversalApp) CreateDP(token, cpAddress, name, mesh, ip, dpyaml string,
 	}
 
 	if dpyaml != "" {
-		err = NewSshApp(s.verbose, s.ports[sshPort], []string{}, []string{"printf ", "\"" + dpyaml + "\"", ">", "/kuma/dpyaml-" + name}).Run()
+		err = NewSshApp(s.verbose, s.ports[sshPort], nil, []string{"printf ", "\"" + dpyaml + "\"", ">", "/kuma/dpyaml-" + name}).Run()
 		if err != nil {
 			panic(err)
 		}
@@ -415,10 +430,12 @@ func (s *UniversalApp) CreateDP(token, cpAddress, name, mesh, ip, dpyaml string,
 	if builtindns {
 		args = append(args, "--dns-enabled")
 	}
-	if ingress {
-		args = append(args, "--proxy-type=ingress")
+
+	if proxyType != "" {
+		args = append(args, "--proxy-type", proxyType)
 	}
-	s.dpApp = NewSshApp(s.verbose, s.ports[sshPort], []string{}, args)
+
+	s.dpApp = NewSshApp(s.verbose, s.ports[sshPort], nil, args)
 }
 
 // iptablesChainExists tests whether iptables believes the given chainName
@@ -427,7 +444,7 @@ func (s *UniversalApp) CreateDP(token, cpAddress, name, mesh, ip, dpyaml string,
 // compatibility) though subsequent commands that depend on it may
 // still fail.
 func (s *UniversalApp) iptablesChainExists(tableName string, chainName string) bool {
-	app := NewSshApp(s.verbose, s.ports[sshPort], []string{}, []string{
+	app := NewSshApp(s.verbose, s.ports[sshPort], nil, []string{
 		"iptables", "-t", tableName, "-L", chainName,
 	})
 
@@ -440,6 +457,7 @@ func (s *UniversalApp) setupTransparent(cpIp string, builtindns bool) {
 		"/usr/bin/kumactl", "install", "transparent-proxy",
 		"--kuma-dp-user", "kuma-dp",
 		"--kuma-cp-ip", cpIp,
+		"--skip-dns-conntrack-zone-split",
 	}
 
 	if builtindns {
@@ -455,7 +473,7 @@ func (s *UniversalApp) setupTransparent(cpIp string, builtindns bool) {
 		}
 	}
 
-	app := NewSshApp(s.verbose, s.ports[sshPort], []string{}, args)
+	app := NewSshApp(s.verbose, s.ports[sshPort], nil, args)
 	err := app.Run()
 	if err != nil {
 		panic(fmt.Sprintf("err: %s\nstderr :%s\nstdout %s", err.Error(), app.Err(), app.Out()))
@@ -463,12 +481,12 @@ func (s *UniversalApp) setupTransparent(cpIp string, builtindns bool) {
 }
 
 func (s *UniversalApp) getIP(isipv6 bool) (string, error) {
-	cmd := SshCmd(s.ports[sshPort], []string{}, []string{"getent", "ahosts", s.container[:12]})
-	bytes, err := cmd.CombinedOutput()
+	cmd := NewSshApp(s.verbose, s.ports[sshPort], nil, []string{"getent", "ahosts", s.container[:12]})
+	err := cmd.Run()
 	if err != nil {
-		return "invalid", errors.Wrapf(err, "getent failed with %s", string(bytes))
+		return "invalid", errors.Wrapf(err, "getent failed with %s", cmd.Err())
 	}
-	lines := strings.Split(string(bytes), "\n")
+	lines := strings.Split(cmd.Out(), "\n")
 	// search for the requested IP
 	for _, line := range lines {
 		split := strings.Split(line, " ")
@@ -496,11 +514,21 @@ type SshApp struct {
 	port   string
 }
 
-func NewSshApp(verbose bool, port string, env []string, args []string) *SshApp {
+func NewSshApp(verbose bool, port string, envMap map[string]string, args []string) *SshApp {
 	app := &SshApp{
 		port: port,
 	}
-	app.cmd = app.SshCmd(env, args)
+	env := []string{}
+	for k, v := range envMap {
+		env = append(env, fmt.Sprintf("%s='%s'", k, utils.ShellEscape(v)))
+	}
+	sshArgs := append([]string{
+		"-q", "-tt",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"root@localhost", "-p", port}, env...)
+	sshArgs = append(sshArgs, args...)
+	app.cmd = exec.Command("ssh", sshArgs...)
 
 	inWriters := []io.Reader{&app.stdin}
 	outWriters := []io.Writer{&app.stdout}
@@ -545,20 +573,4 @@ func (s *SshApp) Out() string {
 
 func (s *SshApp) Err() string {
 	return s.stderr.String()
-}
-
-func (s *SshApp) SshCmd(env []string, args []string) *exec.Cmd {
-	return SshCmd(s.port, env, args)
-}
-
-func SshCmd(port string, env []string, args []string) *exec.Cmd {
-	sshArgs := append([]string{
-		"-q", "-tt",
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"root@localhost", "-p", port}, env...)
-	sshArgs = append(sshArgs, args...)
-
-	cmd := exec.Command("ssh", sshArgs...)
-	return cmd
 }

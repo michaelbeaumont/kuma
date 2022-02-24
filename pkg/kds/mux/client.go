@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"io/ioutil"
 	"net/url"
+	"os"
 
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -52,10 +54,15 @@ func (c *client) Start(stop <-chan struct{}) (errs error) {
 	dialOpts = append(dialOpts, grpc.WithDefaultCallOptions(
 		grpc.MaxCallSendMsgSize(int(c.config.MaxMsgSize)),
 		grpc.MaxCallRecvMsgSize(int(c.config.MaxMsgSize))),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                grpcKeepAliveTime,
+			Timeout:             grpcKeepAliveTime,
+			PermitWithoutStream: true,
+		}),
 	)
 	switch u.Scheme {
 	case "grpc":
-		dialOpts = append(dialOpts, grpc.WithInsecure())
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	case "grpcs":
 		tlsConfig, err := tlsConfig(c.config.RootCAFile)
 		if err != nil {
@@ -121,7 +128,7 @@ func tlsConfig(rootCaFile string) (*tls.Config, error) {
 		}, nil
 	}
 	roots := x509.NewCertPool()
-	caCert, err := ioutil.ReadFile(rootCaFile)
+	caCert, err := os.ReadFile(rootCaFile)
 	if err != nil {
 		return nil, errors.Wrapf(err, "could not read certificate %s", rootCaFile)
 	}

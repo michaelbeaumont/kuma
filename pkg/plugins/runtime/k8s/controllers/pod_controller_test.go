@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	kube_core "k8s.io/api/core/v1"
 	kube_meta "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +37,11 @@ var _ = Describe("PodReconciler", func() {
 
 	BeforeEach(func() {
 		kubeClient = kube_client_fake.NewClientBuilder().WithScheme(k8sClientScheme).WithObjects(
+			&kube_core.Namespace{
+				ObjectMeta: kube_meta.ObjectMeta{
+					Name: "demo",
+				},
+			},
 			&kube_core.Pod{
 				ObjectMeta: kube_meta.ObjectMeta{
 					Namespace: "demo",
@@ -151,6 +156,70 @@ var _ = Describe("PodReconciler", func() {
 					},
 					Selector: map[string]string{
 						"app": "ingress",
+					},
+				},
+			},
+			&kube_core.Pod{
+				ObjectMeta: kube_meta.ObjectMeta{
+					Namespace: "demo",
+					Name:      "pod-egress",
+					Annotations: map[string]string{
+						"kuma.io/sidecar-injected": "true",
+						"kuma.io/egress":           "enabled",
+					},
+					Labels: map[string]string{
+						"app": "egress",
+					},
+				},
+				Status: kube_core.PodStatus{
+					PodIP: "192.168.0.1",
+					ContainerStatuses: []kube_core.ContainerStatus{
+						{
+							State: kube_core.ContainerState{},
+						},
+					},
+				},
+			},
+			&kube_core.Pod{
+				ObjectMeta: kube_meta.ObjectMeta{
+					Namespace: "kuma-system",
+					Name:      "pod-egress",
+					Annotations: map[string]string{
+						"kuma.io/sidecar-injected": "true",
+						"kuma.io/egress":           "enabled",
+					},
+					Labels: map[string]string{
+						"app": "egress",
+					},
+				},
+				Status: kube_core.PodStatus{
+					PodIP: "192.168.0.1",
+					ContainerStatuses: []kube_core.ContainerStatus{
+						{
+							State: kube_core.ContainerState{},
+						},
+					},
+				},
+			},
+			&kube_core.Service{
+				ObjectMeta: kube_meta.ObjectMeta{
+					Namespace:   "kuma-system",
+					Name:        "egress",
+					Annotations: map[string]string{},
+				},
+				Spec: kube_core.ServiceSpec{
+					ClusterIP: "192.168.0.1",
+					Ports: []kube_core.ServicePort{
+						{
+							Port: 80,
+							TargetPort: kube_intstr.IntOrString{
+								Type:   kube_intstr.Int,
+								IntVal: 8080,
+							},
+						},
+					},
+					Selector: map[string]string{
+						"app": "egress",
 					},
 				},
 			},
@@ -279,10 +348,37 @@ var _ = Describe("PodReconciler", func() {
 		Expect(err.Error()).To(Equal(`Ingress can only be deployed in system namespace "kuma-system"`))
 	})
 
+	It("should not reconcile Egress with namespace other than system", func() {
+		// given
+		req := kube_ctrl.Request{
+			NamespacedName: kube_types.NamespacedName{Namespace: "demo", Name: "pod-egress"},
+		}
+
+		// when
+		_, err := reconciler.Reconcile(context.Background(), req)
+
+		// then
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(Equal(`Egress can only be deployed in system namespace "kuma-system"`))
+	})
+
 	It("should reconcile Ingress with system namespace", func() {
 		// given
 		req := kube_ctrl.Request{
 			NamespacedName: kube_types.NamespacedName{Namespace: "kuma-system", Name: "pod-ingress"},
+		}
+
+		// when
+		_, err := reconciler.Reconcile(context.Background(), req)
+
+		// then
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("should reconcile Egress with system namespace", func() {
+		// given
+		req := kube_ctrl.Request{
+			NamespacedName: kube_types.NamespacedName{Namespace: "kuma-system", Name: "pod-egress"},
 		}
 
 		// when
@@ -389,12 +485,18 @@ var _ = Describe("PodReconciler", func() {
                 app: sample
                 kuma.io/protocol: http
                 kuma.io/service: example_demo_svc_80
+                k8s.kuma.io/service-name: example
+                k8s.kuma.io/service-port: "80"
+                k8s.kuma.io/namespace: demo
             - health: {} 
               port: 6060
               tags:
                 app: sample
                 kuma.io/service: example_demo_svc_6061
                 kuma.io/protocol: tcp
+                k8s.kuma.io/service-name: example
+                k8s.kuma.io/service-port: "6061"
+                k8s.kuma.io/namespace: demo
 `))
 	})
 
@@ -405,9 +507,9 @@ var _ = Describe("PodReconciler", func() {
 				Namespace: "demo",
 				Name:      "pod-with-kuma-sidecar-and-ip",
 			},
-			Spec: map[string]interface{}{
-				"networking": map[string]interface{}{},
-			},
+			Spec: mesh_k8s.ToSpec(&mesh_proto.Dataplane{
+				Networking: &mesh_proto.Dataplane_Networking{},
+			}),
 		})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -463,12 +565,18 @@ var _ = Describe("PodReconciler", func() {
                 app: sample
                 kuma.io/protocol: http
                 kuma.io/service: example_demo_svc_80
+                k8s.kuma.io/service-name: example
+                k8s.kuma.io/service-port: "80"
+                k8s.kuma.io/namespace: demo
             - health: {} 
               port: 6060
               tags:
                 app: sample
                 kuma.io/service: example_demo_svc_6061
                 kuma.io/protocol: tcp
+                k8s.kuma.io/service-name: example
+                k8s.kuma.io/service-port: "6061"
+                k8s.kuma.io/namespace: demo
 `))
 	})
 
@@ -484,9 +592,9 @@ var _ = Describe("PodReconciler", func() {
 					Name:       "dp-1",
 				}},
 			},
-			Spec: map[string]interface{}{
-				"networking": map[string]interface{}{},
-			},
+			Spec: mesh_k8s.ToSpec(&mesh_proto.Dataplane{
+				Networking: &mesh_proto.Dataplane_Networking{},
+			}),
 		})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -501,9 +609,9 @@ var _ = Describe("PodReconciler", func() {
 					Name:       "dp-2",
 				}},
 			},
-			Spec: map[string]interface{}{
-				"networking": map[string]interface{}{},
-			},
+			Spec: mesh_k8s.ToSpec(&mesh_proto.Dataplane{
+				Networking: &mesh_proto.Dataplane_Networking{},
+			}),
 		})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -518,9 +626,9 @@ var _ = Describe("PodReconciler", func() {
 					Name:       "dp-3",
 				}},
 			},
-			Spec: map[string]interface{}{
-				"networking": map[string]interface{}{},
-			},
+			Spec: mesh_k8s.ToSpec(&mesh_proto.Dataplane{
+				Networking: &mesh_proto.Dataplane_Networking{},
+			}),
 		})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -532,14 +640,14 @@ var _ = Describe("PodReconciler", func() {
 				Namespace: "demo",
 				Name:      "es-1",
 			},
-			Spec: map[string]interface{}{
-				"networking": map[string]interface{}{
-					"address": "httpbin.org:443",
+			Spec: mesh_k8s.ToSpec(&mesh_proto.ExternalService{
+				Networking: &mesh_proto.ExternalService_Networking{
+					Address: "httpbin.org:443",
 				},
-				"tags": map[string]interface{}{
+				Tags: map[string]string{
 					mesh_proto.ServiceTag: "httpbin",
 				},
-			},
+			}),
 		}
 		requests := mapper(es)
 		requestsStr := []string{}
@@ -562,11 +670,11 @@ var _ = Describe("PodReconciler", func() {
 					Name:       "pod-ingress",
 				}},
 			},
-			Spec: map[string]interface{}{
-				"networking": map[string]interface{}{
-					"ingress": map[string]interface{}{},
-				},
-			},
+			Spec: mesh_k8s.ToSpec(&mesh_proto.Dataplane{
+				Networking: &mesh_proto.Dataplane_Networking{},
+				//  XXX ingress not member of Dataplane protobuf
+				//		"ingress": map[string]interface{}{},
+			}),
 		})
 		Expect(err).NotTo(HaveOccurred())
 

@@ -19,6 +19,7 @@ import (
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	system_proto "github.com/kumahq/kuma/api/system/v1alpha1"
 	"github.com/kumahq/kuma/pkg/core/datasource"
+	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	"github.com/kumahq/kuma/pkg/core/validators"
 	core_xds "github.com/kumahq/kuma/pkg/core/xds"
 	"github.com/kumahq/kuma/pkg/tls"
@@ -57,29 +58,19 @@ const keyTypeECDSA = keyType("ecdsa")
 const keyTypeRSA = keyType("rsa")
 
 // HTTPFilterChainGenerator generates a filter chain for a HTTP listener.
-type HTTPFilterChainGenerator struct{}
-
-func (*HTTPFilterChainGenerator) SupportsProtocol(p mesh_proto.Gateway_Listener_Protocol) bool {
-	return p == mesh_proto.Gateway_Listener_HTTP
+type HTTPFilterChainGenerator struct {
 }
 
-func (*HTTPFilterChainGenerator) GenerateHost(ctx xds_context.Context, info *GatewayResourceInfo) (*core_xds.ResourceSet, error) {
+func (g *HTTPFilterChainGenerator) Generate(
+	ctx xds_context.Context, info GatewayListenerInfo, _ []GatewayHost,
+) (
+	*core_xds.ResourceSet, []*envoy_listeners.FilterChainBuilder, error,
+) {
+	log.V(1).Info("generating filter chain", "protocol", "HTTP")
+
 	// HTTP listeners get a single filter chain for all hostnames. So
 	// if there's already a filter chain, we have nothing to do.
-	if info.Resources.FilterChain != nil {
-		log.V(1).Info("updating existing filter chain",
-			"hostname", info.Host.Hostname,
-		)
-
-		return nil, nil
-	}
-
-	log.V(1).Info("generating filter chain",
-		"hostname", info.Host.Hostname,
-	)
-
-	info.Resources.FilterChain = newFilterChain(ctx, info)
-	return nil, nil
+	return nil, []*envoy_listeners.FilterChainBuilder{newFilterChain(ctx, info)}, nil
 }
 
 // HTTPSFilterChainGenerator generates a filter chain for an HTTPS listener.
@@ -87,94 +78,92 @@ type HTTPSFilterChainGenerator struct {
 	DataSourceLoader datasource.Loader
 }
 
-func (*HTTPSFilterChainGenerator) SupportsProtocol(p mesh_proto.Gateway_Listener_Protocol) bool {
-	return p == mesh_proto.Gateway_Listener_HTTPS
-}
-
-func (g *HTTPSFilterChainGenerator) GenerateHost(ctx xds_context.Context, info *GatewayResourceInfo) (*core_xds.ResourceSet, error) {
-	// HTTPS listeners get a filter chain for each hostname. So if
-	// there is already a filter chain (from the previous host), we
-	// close it, and start a new one.
-	if info.Resources.FilterChain != nil {
-		info.Resources.Listener.Configure(
-			envoy_listeners.FilterChain(info.Resources.FilterChain),
-		)
-	}
-
-	log.V(1).Info("generating filter chain",
-		"hostname", info.Host.Hostname,
-	)
-
+func (g *HTTPSFilterChainGenerator) Generate(
+	ctx xds_context.Context, info GatewayListenerInfo, hosts []GatewayHost,
+) (
+	*core_xds.ResourceSet, []*envoy_listeners.FilterChainBuilder, error,
+) {
 	resources := core_xds.NewResourceSet()
 
-	switch info.Host.TLS.GetMode() {
-	case mesh_proto.Gateway_TLS_TERMINATE:
-		// Note that Envoy 1.184 and earlier will only accept 1 SDS reference.
-		for _, cert := range info.Host.TLS.GetCertificates() {
-			secret, err := g.generateCertificateSecret(ctx, info, cert)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to generate TLS certificate")
+	var filterChainBuilders []*envoy_listeners.FilterChainBuilder
+
+	for _, host := range hosts {
+		hostResources := core_xds.NewResourceSet()
+		log.V(1).Info("generating filter chain",
+			"hostname", host.Hostname,
+		)
+
+		switch host.TLS.GetMode() {
+		case mesh_proto.MeshGateway_TLS_TERMINATE:
+			// Note that Envoy 1.184 and earlier will only accept 1 SDS reference.
+			for _, cert := range host.TLS.GetCertificates() {
+				secret, err := g.generateCertificateSecret(ctx, info, host, cert)
+				if err != nil {
+					return nil, nil, errors.Wrap(err, "failed to generate TLS certificate")
+				}
+
+				if hostResources.Contains(secret.Name, secret) {
+					return nil, nil, errors.Errorf("duplicate TLS certificate %q", secret.Name)
+				}
+
+				hostResources.Add(NewResource(secret.Name, secret))
 			}
 
-			if resources.Contains(secret.Name, secret) {
-				return nil, errors.Errorf("duplicate TLS certificate %q", secret.Name)
-			}
+		case mesh_proto.MeshGateway_TLS_PASSTHROUGH:
+			// TODO(jpeach) add support for PASSTHROUGH mode.
+			return nil, nil, errors.Errorf("unsupported TLS mode %q", host.TLS.GetMode())
 
-			resources.Add(NewResource(secret.Name, secret))
+		default:
+			return nil, nil, errors.Errorf("unsupported TLS mode %q", host.TLS.GetMode())
 		}
 
-	case mesh_proto.Gateway_TLS_PASSTHROUGH:
-		// TODO(jpeach) add support for PASSTHROUGH mode.
-		return nil, errors.Errorf("unsupported TLS mode %q", info.Host.TLS.GetMode())
+		builder := newFilterChain(ctx, info)
 
-	default:
-		return nil, errors.Errorf("unsupported TLS mode %q", info.Host.TLS.GetMode())
-	}
-
-	builder := newFilterChain(ctx, info)
-
-	builder.Configure(
-		envoy_listeners.MatchTransportProtocol("tls"),
-		envoy_listeners.MatchServerNames(info.Host.Hostname),
-		envoy_listeners.MatchApplicationProtocols("h2", "http/1.1"),
-	)
-
-	downstream := newDownstreamTypedConfig()
-
-	// If we generated any secrets, attach their references to the downstream validation context.
-	for _, s := range resources.ListOf(envoy_resource.SecretType) {
-		downstream.CommonTlsContext.TlsCertificateSdsSecretConfigs = append(
-			downstream.CommonTlsContext.TlsCertificateSdsSecretConfigs, envoy_tls_v3.NewSecretConfigSource(s.Name),
+		builder.Configure(
+			envoy_listeners.MatchTransportProtocol("tls"),
+			envoy_listeners.MatchServerNames(host.Hostname),
+			envoy_listeners.MatchApplicationProtocols("h2", "http/1.1"),
 		)
+
+		downstream := newDownstreamTypedConfig()
+
+		// If we generated any secrets, attach their references to the downstream validation context.
+		for _, s := range hostResources.ListOf(envoy_resource.SecretType) {
+			downstream.CommonTlsContext.TlsCertificateSdsSecretConfigs = append(
+				downstream.CommonTlsContext.TlsCertificateSdsSecretConfigs, envoy_tls_v3.NewSecretConfigSource(s.Name),
+			)
+		}
+
+		any, err := util_proto.MarshalAnyDeterministic(downstream)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		builder.Configure(
+			envoy_listeners.AddFilterChainConfigurer(envoy_listeners_v3.FilterChainMustConfigureFunc(
+				func(chain *envoy_listener.FilterChain) {
+					chain.TransportSocket = &envoy_config_core.TransportSocket{
+						Name: "envoy.transport_sockets.tls",
+						ConfigType: &envoy_config_core.TransportSocket_TypedConfig{
+							TypedConfig: any,
+						},
+					}
+				}),
+			),
+		)
+
+		filterChainBuilders = append(filterChainBuilders, builder)
+
+		resources.AddSet(hostResources)
 	}
 
-	any, err := util_proto.MarshalAnyDeterministic(downstream)
-	if err != nil {
-		return nil, err
-	}
-
-	builder.Configure(
-		envoy_listeners.AddFilterChainConfigurer(envoy_listeners_v3.FilterChainMustConfigureFunc(
-			func(chain *envoy_listener.FilterChain) {
-				chain.TransportSocket = &envoy_config_core.TransportSocket{
-					Name: "envoy.transport_sockets.tls",
-					ConfigType: &envoy_config_core.TransportSocket_TypedConfig{
-						TypedConfig: any,
-					},
-				}
-			}),
-		),
-	)
-
-	// Leave the builder open so that later steps can update the filters.
-	info.Resources.FilterChain = builder
-
-	return resources, nil
+	return resources, filterChainBuilders, nil
 }
 
 func (g *HTTPSFilterChainGenerator) generateCertificateSecret(
 	ctx xds_context.Context,
-	info *GatewayResourceInfo,
+	info GatewayListenerInfo,
+	host GatewayHost,
 	secret *system_proto.DataSource,
 ) (*envoy_extensions_transport_sockets_tls_v3.Secret, error) {
 	data, err := g.DataSourceLoader.Load(context.Background(), ctx.Mesh.Resource.GetMeta().GetName(), secret)
@@ -200,7 +189,7 @@ func (g *HTTPSFilterChainGenerator) generateCertificateSecret(
 		// different key types, we need to use the key type
 		// to disambiguate when the certificate is provided as
 		// inline data.
-		tlsSecret.Name = names.GetSecretName("cert."+string(ktype), "inline", info.Host.Hostname)
+		tlsSecret.Name = names.GetSecretName("cert."+string(ktype), "inline", host.Hostname)
 	default:
 		return nil, errors.Errorf("unsupported datasource type %T", d)
 	}
@@ -230,7 +219,7 @@ func newDownstreamTypedConfig() *envoy_extensions_transport_sockets_tls_v3.Downs
 	return conf
 }
 
-func newFilterChain(ctx xds_context.Context, info *GatewayResourceInfo) *envoy_listeners.FilterChainBuilder {
+func newFilterChain(ctx xds_context.Context, info GatewayListenerInfo) *envoy_listeners.FilterChainBuilder {
 	// A Gateway is a single service across all listeners.
 	service := info.Dataplane.Spec.GetIdentifyingService()
 
@@ -271,17 +260,24 @@ func newFilterChain(ctx xds_context.Context, info *GatewayResourceInfo) *envoy_l
 
 	// Tracing and logging have to be configured after the HttpConnectionManager is enabled.
 	builder.Configure(
+		// Force the ratelimit filter to always be present. This
+		// is a no-op unless we later add a per-route configuration.
+		envoy_listeners.RateLimit([]*core_mesh.RateLimitResource{nil}),
 		envoy_listeners.DefaultCompressorFilter(),
-		envoy_listeners.Tracing(info.Proxy.Policies.TracingBackend, service),
-		// TODO(jpeach) Logging policy doesn't work at all. The logging backend is
-		// selected by matching against outbound service names, and gateway dataplanes
-		// don't have any of those.
+		envoy_listeners.Tracing(ctx.Mesh.GetTracingBackend(info.Proxy.Policies.TrafficTrace), service),
+		// In mesh proxies, the access log is configured on the outbound
+		// listener, which is why we index the Logs slice by destination
+		// service name.  A Gateway listener by definition forwards traffic
+		// to multiple destinations, so rather than making up some arbitrary
+		// rules about which destination service we should accept here, we
+		// match the log policy for the generic pass through service. This
+		// will be the only policy available for a Dataplane with no outbounds.
 		envoy_listeners.HttpAccessLog(
 			ctx.Mesh.Resource.Meta.GetName(),
 			envoy.TrafficDirectionInbound,
-			service, // Source service is the gateway service.
-			"*",     // Destination service could be anywhere, depending on the routes.
-			info.Proxy.Policies.Logs[service],
+			service,                // Source service is the gateway service.
+			mesh_proto.MatchAllTag, // Destination service could be anywhere, depending on the routes.
+			ctx.Mesh.GetLoggingBackend(info.Proxy.Policies.TrafficLogs[core_mesh.PassThroughService]),
 			info.Proxy,
 		),
 	)

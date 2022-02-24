@@ -3,8 +3,7 @@ package generator_test
 import (
 	"path/filepath"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
@@ -37,15 +36,47 @@ var _ = Describe("SecretsGenerator", func() {
 			// then
 			Expect(err).ToNot(HaveOccurred())
 			// and
-			Expect(rs).To(BeNil())
+			Expect(rs.List()).To(BeEmpty())
 		},
 		Entry("Mesh has no mTLS configuration", testCase{
+			ctx: xds_context.Context{
+				Mesh: xds_context.MeshContext{
+					Resource: &core_mesh.MeshResource{},
+				},
+			},
 			proxy: &core_xds.Proxy{
 				Id: *core_xds.BuildProxyId("", "demo.backend-01"),
 				Dataplane: &core_mesh.DataplaneResource{
 					Meta: &test_model.ResourceMeta{
 						Name: "backend-01",
 						Mesh: "demo",
+					},
+				},
+				APIVersion: envoy_common.APIV3,
+			},
+		}),
+		Entry("Mesh has no mTLS configuration", testCase{
+			ctx: xds_context.Context{
+				Mesh: xds_context.MeshContext{
+					Resource: &core_mesh.MeshResource{},
+				},
+			},
+			proxy: &core_xds.Proxy{
+				Id: *core_xds.BuildProxyId("", mesh_proto.ZoneEgressServiceName),
+				ZoneEgressProxy: &core_xds.ZoneEgressProxy{
+					MeshResourcesList: []*core_xds.MeshResources{
+						{
+							Mesh: &core_mesh.MeshResource{
+								Meta: &test_model.ResourceMeta{
+									Name: "demo",
+								},
+							},
+						},
+					},
+					ZoneEgressResource: &core_mesh.ZoneEgressResource{
+						Meta: &test_model.ResourceMeta{
+							Name: mesh_proto.ZoneEgressServiceName,
+						},
 					},
 				},
 				APIVersion: envoy_common.APIV3,
@@ -79,6 +110,9 @@ var _ = Describe("SecretsGenerator", func() {
 				},
 				Mesh: xds_context.MeshContext{
 					Resource: &core_mesh.MeshResource{
+						Meta: &test_model.ResourceMeta{
+							Name: "default",
+						},
 						Spec: &mesh_proto.Mesh{
 							Mtls: &mesh_proto.Mesh_Mtls{
 								EnabledBackend: "ca-1",
@@ -108,7 +142,76 @@ var _ = Describe("SecretsGenerator", func() {
 				},
 				APIVersion: envoy_common.APIV3,
 			},
-			expected: "envoy-config.golden.yaml",
+			expected: "envoy-config-zipkin.golden.yaml",
+		}),
+		Entry("should create secrets when multiple meshes present (egress)", testCase{
+			ctx: xds_context.Context{
+				ControlPlane: &xds_context.ControlPlaneContext{
+					Secrets: &xds.TestSecrets{},
+				},
+			},
+			proxy: &core_xds.Proxy{
+				Id:         *core_xds.BuildProxyId("", mesh_proto.ZoneEgressServiceName),
+				APIVersion: envoy_common.APIV3,
+				ZoneEgressProxy: &core_xds.ZoneEgressProxy{
+					MeshResourcesList: []*core_xds.MeshResources{
+						{
+							Mesh: &core_mesh.MeshResource{
+								Meta: &test_model.ResourceMeta{
+									Name: "mesh-1",
+								},
+								Spec: &mesh_proto.Mesh{
+									Mtls: &mesh_proto.Mesh_Mtls{
+										EnabledBackend: "ca-1",
+										Backends: []*mesh_proto.CertificateAuthorityBackend{
+											{
+												Name: "ca-1",
+												Type: "builtin",
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							Mesh: &core_mesh.MeshResource{
+								Meta: &test_model.ResourceMeta{
+									Name: "mesh-2",
+								},
+								Spec: &mesh_proto.Mesh{
+									Mtls: &mesh_proto.Mesh_Mtls{
+										EnabledBackend: "ca-1",
+										Backends: []*mesh_proto.CertificateAuthorityBackend{
+											{
+												Name: "ca-1",
+												Type: "builtin",
+											},
+										},
+									},
+								},
+							},
+							// only meshes with external services are taken into account
+							ExternalServices: []*core_mesh.ExternalServiceResource{
+								{
+									Meta: &test_model.ResourceMeta{
+										Name: "es-mesh-2",
+										Mesh: "mesh-2",
+									},
+									Spec: &mesh_proto.ExternalService{
+										Networking: &mesh_proto.ExternalService_Networking{
+											Address: "example.com:80",
+										},
+										Tags: map[string]string{
+											"kuma.io/service": "service2",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: "envoy-config-egress.golden.yaml",
 		}),
 	)
 })

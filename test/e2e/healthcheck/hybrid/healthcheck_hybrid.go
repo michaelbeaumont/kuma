@@ -7,7 +7,7 @@ import (
 
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,19 +32,7 @@ spec:
 `, mesh)
 	}
 
-	namespaceWithSidecarInjection := func(namespace string) string {
-		return fmt.Sprintf(`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: %s
-  annotations:
-    kuma.io/sidecar-injection: "enabled"
-`, namespace)
-	}
-
 	var globalK8s, zoneK8s, zoneUniversal Cluster
-	var optsGlobalK8s, optsZoneK8s, optsZoneUniversal = KumaK8sDeployOpts, KumaZoneK8sDeployOpts, KumaUniversalDeployOpts
 
 	BeforeEach(func() {
 		k8sClusters, err := NewK8sClusters([]string{Kuma1, Kuma2}, Silent)
@@ -55,19 +43,18 @@ metadata:
 
 		globalK8s = k8sClusters.GetCluster(Kuma1)
 		err = NewClusterSetup().
-			Install(Kuma(core.Global, optsGlobalK8s...)).
+			Install(Kuma(core.Global)).
 			Install(YamlK8s(meshMTLSOn("default"))).
 			Setup(globalK8s)
 		Expect(err).ToNot(HaveOccurred())
 
-		optsZoneK8s = append(optsZoneK8s,
-			WithIngress(),
-			WithGlobalAddress(globalK8s.GetKuma().GetKDSServerAddress()))
-
 		zoneK8s = k8sClusters.GetCluster(Kuma2)
 		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZoneK8s...)).
-			Install(YamlK8s(namespaceWithSidecarInjection(TestNamespace))).
+			Install(Kuma(core.Zone,
+				WithIngress(),
+				WithGlobalAddress(globalK8s.GetKuma().GetKDSServerAddress()),
+			)).
+			Install(NamespaceWithSidecarInjection(TestNamespace)).
 			Install(DemoClientK8s("default")).
 			Setup(zoneK8s)
 		Expect(err).ToNot(HaveOccurred())
@@ -75,15 +62,14 @@ metadata:
 		testServerToken, err := globalK8s.GetKuma().GenerateDpToken("default", "test-server")
 		Expect(err).ToNot(HaveOccurred())
 
-		optsZoneUniversal = append(optsZoneUniversal,
-			WithGlobalAddress(globalK8s.GetKuma().GetKDSServerAddress()))
-
 		zoneUniversal = universalClusters.GetCluster(Kuma3)
 		ingressTokenKuma3, err := globalK8s.GetKuma().GenerateZoneIngressToken(Kuma3)
 		Expect(err).ToNot(HaveOccurred())
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZoneUniversal...)).
+			Install(Kuma(core.Zone,
+				WithGlobalAddress(globalK8s.GetKuma().GetKDSServerAddress()),
+			)).
 			Install(TestServerUniversal("test-server-1", "default", testServerToken,
 				WithArgs([]string{"echo", "--instance", "dp-universal-1"}),
 				WithProtocol("tcp"))).
@@ -98,8 +84,6 @@ metadata:
 			Install(IngressUniversal(ingressTokenKuma3)).
 			Setup(zoneUniversal)
 		Expect(err).ToNot(HaveOccurred())
-		err = zoneUniversal.VerifyKuma()
-		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
@@ -108,12 +92,12 @@ metadata:
 		}
 
 		Expect(zoneK8s.DeleteNamespace(TestNamespace)).To(Succeed())
-		err := zoneK8s.DeleteKuma(optsZoneK8s...)
+		err := zoneK8s.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 		err = zoneK8s.DismissCluster()
 		Expect(err).ToNot(HaveOccurred())
 
-		err = zoneUniversal.DeleteKuma(optsZoneUniversal...)
+		err = zoneUniversal.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 		err = zoneUniversal.DismissCluster()
 		Expect(err).ToNot(HaveOccurred())

@@ -1,7 +1,7 @@
 package globalkubernetes
 
 import (
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/kumahq/kuma/pkg/config/core"
@@ -10,7 +10,6 @@ import (
 
 func KubernetesUniversalDeploymentWhenGlobalIsOnK8S() {
 	var globalCluster, zoneCluster Cluster
-	var optsGlobal, optsZone = KumaK8sDeployOpts, KumaUniversalDeployOpts
 
 	BeforeEach(func() {
 		k8sClusters, err := NewK8sClusters(
@@ -27,10 +26,8 @@ func KubernetesUniversalDeploymentWhenGlobalIsOnK8S() {
 		globalCluster = k8sClusters.GetCluster(Kuma1)
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Global, optsGlobal...)).
+			Install(Kuma(core.Global)).
 			Setup(globalCluster)
-		Expect(err).ToNot(HaveOccurred())
-		err = globalCluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 		globalCP := globalCluster.GetKuma()
 
@@ -41,19 +38,15 @@ func KubernetesUniversalDeploymentWhenGlobalIsOnK8S() {
 
 		// Zone
 		zoneCluster = universalClusters.GetCluster(Kuma3)
-		optsZone = append(optsZone,
-			WithGlobalAddress(globalCP.GetKDSServerAddress()))
 		ingressTokenKuma3, err := globalCP.GenerateZoneIngressToken(Kuma3)
 		Expect(err).ToNot(HaveOccurred())
 
 		err = NewClusterSetup().
-			Install(Kuma(core.Zone, optsZone...)).
+			Install(Kuma(core.Zone, WithGlobalAddress(globalCP.GetKDSServerAddress()))).
 			Install(TestServerUniversal("test-server", "default", echoServerToken, WithArgs([]string{"echo", "--instance", "universal-1"}))).
 			Install(DemoClientUniversal(AppModeDemoClient, "default", demoClientToken, WithTransparentProxy(true))).
 			Install(IngressUniversal(ingressTokenKuma3)).
 			Setup(zoneCluster)
-		Expect(err).ToNot(HaveOccurred())
-		err = zoneCluster.VerifyKuma()
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -61,12 +54,12 @@ func KubernetesUniversalDeploymentWhenGlobalIsOnK8S() {
 		if ShouldSkipCleanup() {
 			return
 		}
-		err := globalCluster.DeleteKuma(optsGlobal...)
+		err := globalCluster.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 		err = globalCluster.DismissCluster()
 		Expect(err).ToNot(HaveOccurred())
 
-		err = zoneCluster.DeleteKuma(optsZone...)
+		err = zoneCluster.DeleteKuma()
 		Expect(err).ToNot(HaveOccurred())
 		err = zoneCluster.DismissCluster()
 		Expect(err).ToNot(HaveOccurred())

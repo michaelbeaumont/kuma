@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,7 +43,7 @@ var _ = BeforeSuite(test.Within(time.Minute, func() {
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "..", "..", "resources", "k8s", "native", "config", "crd", "bases"),
+			filepath.Join("..", "..", "..", "..", "..", "..", test.CustomResourceDir),
 		},
 	}
 
