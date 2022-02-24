@@ -46,7 +46,6 @@ function release {
     --token "${GH_TOKEN}" \
     --package-path "${CHARTS_PACKAGE_PATH}"
 
-
   # Then build and upload the index file to github pages
   git clone --single-branch --branch "${GH_PAGES_BRANCH}" $GH_REPO_URL
 
@@ -59,8 +58,6 @@ function release {
 
   pushd ${GH_REPO}
   # tell git who we are before adding the index file
-  git config user.email "helm@kuma.io"
-  git config user.name "Helm Releaser"
   git add "${CHARTS_INDEX_FILE}"
   git commit -m "ci(helm) publish charts"
   git push
