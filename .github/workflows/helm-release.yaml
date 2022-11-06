@@ -28,13 +28,14 @@ env:
   GH_EMAIL: "<41898282+github-actions[bot]@users.noreply.github.com>"
   GH_OWNER: ${{ github.repository_owner }}
   GITHUB_APP: "true"
+  GIT_COMMIT: commit.patch
 
 jobs:
   package:
     name: Package
     runs-on: ubuntu-latest
     outputs:
-      filename: ${{ steps.package.outputs.filename }}
+      chart-pkg: ${{ steps.package.outputs.chart-pkg }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -57,20 +58,26 @@ jobs:
           ./tools/releases/helm.sh ${args}
 
           git add -u deployments/charts
-          # This commit never ends up in the repo
-          git commit -m "ci(helm): update versions"
+
+          git commit -m "ci(helm): update versions" --signoff
+
+          git format-patch -1 HEAD --stdout > ${{ env.GIT_COMMIT }}
+      - name: Upload git commit
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.GIT_COMMIT }}
       - name: Package chart
         id: package
         run: |
           ./tools/releases/helm.sh --package
 
           PKG_FILENAME=$(find .cr-release-packages -type f -printf "%f\n")
-          echo "::set-output name=filename::${PKG_FILENAME}"
+          echo "::set-output name=chart-pkg::${PKG_FILENAME}"
       - name: Upload packaged chart
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ steps.package.outputs.filename }}
-          path: .cr-release-packages/${{ steps.package.outputs.filename }}
+          name: ${{ steps.package.outputs.chart-pkg }}
+          path: .cr-release-packages/${{ steps.package.outputs.chart-pkg }}
 
   release:
     name: Release
@@ -91,7 +98,7 @@ jobs:
       - name: Download packaged chart
         uses: actions/download-artifact@v3
         with:
-          name: ${{ needs.package.outputs.filename }}
+          name: ${{ needs.package.outputs.chart-pkg }}
           path: .cr-release-packages
       - name: Generate GitHub app token
         id: github-app-token
@@ -104,3 +111,33 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.github-app-token.outputs.token }}
         run: ./tools/releases/helm.sh --release
+
+  commit-version:
+    name: Update chart version in repo
+    runs-on: ubuntu-latest
+    needs: release
+    environment: charts
+    # https://github.com/actions/runner/issues/1483
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Generate GitHub app token
+        id: github-app-token
+        uses: tibdex/github-app-token@f717b5ecd4534d3c4df4ce9b5c1c2214f0f7cd06 # v1.6.0
+        with:
+          app_id: ${{ secrets.APP_ID }}
+          private_key: ${{ secrets.APP_PRIVATE_KEY }}
+          repository: ${{ env.GH_OWNER }}/charts
+      - name: Download commit
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ env.GIT_COMMIT }}
+      - name: Apply commit
+        run: |
+          git am < ${{ env.GIT_COMMIT }}
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v4
+        with:
+          token: ${{ steps.github-app-token.outputs.token }}
