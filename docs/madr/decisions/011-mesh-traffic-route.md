@@ -549,6 +549,15 @@ spec:
         backendRefs: [..]
 ```
 
+### `MeshHTTPRoute` as `spec.targetRef`
+
+One of the motivations for switching to `targetRefs` was to enable policies
+to target finer grained resources than services or `Dataplanes`.
+
+`MeshHTTPRoute` is the most important of these resources. This MADR goes over
+how targeting a route will work but it may be refined in a future MADR or
+implementation.
+
 ### Additional use cases
 
 The following uses cases and examples are kept for the record.
