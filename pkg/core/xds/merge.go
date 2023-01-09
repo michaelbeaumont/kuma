@@ -33,7 +33,8 @@ func MergeConfs(confs []interface{}) (interface{}, error) {
 		}
 	}
 
-	result, err := newConf(reflect.TypeOf(confs[0]))
+	confType := reflect.TypeOf(confs[0])
+	result, err := newConf(confType)
 	if err != nil {
 		return nil, err
 	}
@@ -42,16 +43,113 @@ func MergeConfs(confs []interface{}) (interface{}, error) {
 		return nil, err
 	}
 
+	valueResult := reflect.ValueOf(result)
 	// clear appendable slices, so we won't duplicate values of the last conf
-	clearAppendSlices(reflect.ValueOf(result))
+	clearAppendSlices(valueResult)
 	for _, conf := range confs {
 		// call .Elem() to unwrap interface{}
-		appendSlices(reflect.ValueOf(result), reflect.ValueOf(&conf).Elem())
+		appendSlices(valueResult, reflect.ValueOf(&conf).Elem())
 	}
 
-	v := reflect.ValueOf(result).Elem().Interface()
+	if err := handleMergeByKeyFields(valueResult); err != nil {
+		return nil, err
+	}
+
+	v := valueResult.Elem().Interface()
 
 	return v, nil
+}
+
+type acc struct {
+	Key      interface{}
+	Defaults []interface{}
+}
+
+func handleMergeByKeyFields(valueResult reflect.Value) error {
+	confType := valueResult.Elem().Type()
+	for i := 0; i < confType.NumField(); i++ {
+		field := confType.Field(i)
+		if _, ok := field.Tag.Lookup("mergeByKey"); !ok {
+			continue
+		}
+		if field.Type.Kind() != reflect.Slice && field.Type.Elem().Kind() != reflect.Struct {
+			return errors.New("mergeByKey field must be a slice of structs")
+		}
+		entriesValue := valueResult.Elem().Field(i)
+		merged, err := mergeByKey(entriesValue)
+		if err != nil {
+			return err
+		}
+		valueResult.Elem().Field(i).Set(merged)
+	}
+	return nil
+}
+
+func mergeByKey(vals reflect.Value) (reflect.Value, error) {
+	if vals.Len() == 0 {
+		return reflect.Value{}, nil
+	}
+	valType := vals.Index(0).Type()
+	key, ok := findKeyAndSpec(valType)
+	if !ok {
+		return reflect.Value{}, errors.New("mergeByKey field must have a field tagged as key and a Default field")
+	}
+	var defaultsByKey []acc
+	for i := 0; i < vals.Len(); i++ {
+		value := vals.Index(i)
+		mergeKeyValue := value.FieldByName(key.Name).Interface()
+		var found bool
+		for i, accRule := range defaultsByKey {
+			if !reflect.DeepEqual(accRule.Key, mergeKeyValue) {
+				continue
+			}
+			defaultsByKey[i] = acc{
+				Key:      accRule.Key,
+				Defaults: append(accRule.Defaults, value.FieldByName("Default").Interface()),
+			}
+			found = true
+		}
+		if !found {
+			defaultsByKey = append(defaultsByKey, acc{
+				Key:      mergeKeyValue,
+				Defaults: []interface{}{value.FieldByName("Default").Interface()},
+			})
+		}
+	}
+	keyValues := reflect.Zero(vals.Type())
+	for _, confs := range defaultsByKey {
+		merged, err := MergeConfs(confs.Defaults)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+
+		keyValueP := reflect.New(valType)
+		keyValue := keyValueP.Elem()
+
+		keyValue.FieldByName(key.Name).Set(reflect.ValueOf(confs.Key))
+		keyValue.FieldByName("Default").Set(reflect.ValueOf(merged))
+
+		keyValues = reflect.Append(keyValues, keyValue)
+	}
+	return keyValues, nil
+}
+
+func findKeyAndSpec(typ reflect.Type) (reflect.StructField, bool) {
+	var key *reflect.StructField
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if _, ok := field.Tag.Lookup("key"); ok {
+			key = &field
+			break
+		}
+	}
+	if key == nil {
+		return reflect.StructField{}, false
+	}
+	if _, ok := typ.FieldByName("Default"); !ok {
+		return reflect.StructField{}, false
+	}
+	return *key, true
 }
 
 func newConf(t reflect.Type) (interface{}, error) {

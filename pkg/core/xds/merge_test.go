@@ -199,4 +199,72 @@ var _ = Describe("MergeConfs", func() {
 			},
 		}),
 	)
+
+	type mergeKey struct {
+		Left  bool
+		Right bool
+	}
+	type mergeConf struct {
+		A *bool `json:"a,omitempty"`
+		B *bool `json:"b,omitempty"`
+	}
+	type mergeEntry struct {
+		Key     mergeKey  `json:"key" key:""`
+		Default mergeConf `json:"default"`
+	}
+	type nonMergeEntry struct {
+		Key     mergeKey  `json:"key"`
+		Default mergeConf `json:"default"`
+	}
+	type testPolicy struct {
+		MergeValues []mergeEntry `mergeByKey:""`
+		OtherValues []nonMergeEntry
+	}
+
+	type mergeByKeyCase struct {
+		val      testPolicy
+		expected testPolicy
+	}
+
+	t := true
+	DescribeTable("mergeByKey",
+		func(given mergeByKeyCase) {
+			merged, err := xds.MergeConfs([]interface{}{given.val})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(merged).To(Equal(given.expected))
+		},
+		Entry("should work with a basic policy", mergeByKeyCase{
+			val: testPolicy{
+				MergeValues: []mergeEntry{{
+					Key: mergeKey{Left: true}, Default: mergeConf{A: &t},
+				}, {
+					Key: mergeKey{Left: true}, Default: mergeConf{B: &t},
+				}, {
+					Key: mergeKey{Right: true}, Default: mergeConf{B: &t},
+				}},
+				OtherValues: []nonMergeEntry{{
+					Key: mergeKey{Left: true}, Default: mergeConf{A: &t},
+				}, {
+					Key: mergeKey{Left: true}, Default: mergeConf{B: &t},
+				}, {
+					Key: mergeKey{Right: true}, Default: mergeConf{B: &t},
+				}},
+			},
+			expected: testPolicy{
+				MergeValues: []mergeEntry{{
+					Key: mergeKey{Left: true}, Default: mergeConf{A: &t, B: &t},
+				}, {
+					Key: mergeKey{Right: true}, Default: mergeConf{B: &t},
+				}},
+				OtherValues: []nonMergeEntry{{
+					Key: mergeKey{Left: true}, Default: mergeConf{A: &t},
+				}, {
+					Key: mergeKey{Left: true}, Default: mergeConf{B: &t},
+				}, {
+					Key: mergeKey{Right: true}, Default: mergeConf{B: &t},
+				}},
+			},
+		}),
+	)
+
 })
