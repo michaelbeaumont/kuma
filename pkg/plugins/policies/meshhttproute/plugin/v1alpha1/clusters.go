@@ -52,11 +52,11 @@ func generateClusters(
 				}
 
 				switch protocol {
-				case core_mesh.ProtocolHTTP:
-					edsClusterBuilder.Configure(envoy_clusters.Http())
 				case core_mesh.ProtocolHTTP2, core_mesh.ProtocolGRPC:
 					edsClusterBuilder.Configure(envoy_clusters.Http2())
+				// We can assume at least HTTP
 				default:
+					edsClusterBuilder.Configure(envoy_clusters.Http())
 				}
 			} else {
 				edsClusterBuilder.
