@@ -491,7 +491,13 @@ func (r *HTTPRouteReconciler) gapiToKumaFilters(
 			},
 		})
 	default:
-		return nil, nil, fmt.Errorf("unsupported filter type %q", filter.Type)
+		condition := kube_meta.Condition{
+			Type:    string(gatewayapi.RouteConditionAccepted),
+			Status:  kube_meta.ConditionFalse,
+			Reason:  string(gatewayapi.RouteReasonUnsupportedValue),
+			Message: fmt.Sprintf("Unsupported filter type %s", filter.Type),
+		}
+		kube_apimeta.SetStatusCondition(&conditions, condition)
 	}
 
 	return kumaFilters, conditions, nil
