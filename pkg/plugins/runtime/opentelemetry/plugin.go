@@ -107,6 +107,7 @@ func initOtel(ctx context.Context, otelConfig tracing.OpenTelemetry) (func(conte
 	)
 	otel.SetTracerProvider(tracerProvider)
 
+	otel.SetLogger(log)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	return tracerProvider.Shutdown, nil
