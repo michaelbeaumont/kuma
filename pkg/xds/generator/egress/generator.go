@@ -9,10 +9,12 @@ import (
 	"github.com/kumahq/kuma/pkg/core"
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
 	core_xds "github.com/kumahq/kuma/pkg/core/xds"
+	meshhttproute_api "github.com/kumahq/kuma/pkg/plugins/policies/meshhttproute/api/v1alpha1"
 	xds_context "github.com/kumahq/kuma/pkg/xds/context"
 	envoy_common "github.com/kumahq/kuma/pkg/xds/envoy"
 	envoy_listeners "github.com/kumahq/kuma/pkg/xds/envoy/listeners"
 	envoy_tags "github.com/kumahq/kuma/pkg/xds/envoy/tags"
+	"github.com/kumahq/kuma/pkg/xds/generator/routes"
 	generator_secrets "github.com/kumahq/kuma/pkg/xds/generator/secrets"
 )
 
@@ -126,6 +128,7 @@ func (g Generator) Generate(
 
 func buildDestinations(
 	trafficRoutes []*core_mesh.TrafficRouteResource,
+	meshHTTPRoutes []*meshhttproute_api.MeshHTTPRouteResource,
 ) map[string][]envoy_tags.Tags {
 	destinations := map[string][]envoy_tags.Tags{}
 
@@ -142,6 +145,8 @@ func buildDestinations(
 			}
 		}
 	}
+
+	routes.AddMeshHTTPRouteDestinations(meshHTTPRoutes, destinations)
 
 	return destinations
 }
