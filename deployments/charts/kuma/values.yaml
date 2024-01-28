@@ -679,7 +679,7 @@ hooks:
 
 experimental:
   # -- If true, it installs experimental Gateway API support
-  gatewayAPI: false
+  gatewayAPI: true
   # Configuration for the experimental ebpf mode for transparent proxy
   ebpf:
     # -- If true, ebpf will be used instead of using iptables to install/configure transparent proxy

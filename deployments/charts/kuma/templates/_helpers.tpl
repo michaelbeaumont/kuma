@@ -255,9 +255,9 @@ env:
   value: "false"
 - name: KUMA_RUNTIME_KUBERNETES_SERVICE_ACCOUNT_NAME
   value: "system:serviceaccount:{{ .Release.Namespace }}:{{ include "kuma.name" . }}-control-plane"
-{{- if .Values.experimental.gatewayAPI }}
+{{- if not .Values.experimental.gatewayAPI }}
 - name: KUMA_EXPERIMENTAL_GATEWAY_API
-  value: "true"
+  value: "false"
 {{- end }}
 {{- if .Values.cni.enabled }}
 - name: KUMA_RUNTIME_KUBERNETES_NODE_TAINT_CONTROLLER_ENABLED
