@@ -86,7 +86,8 @@ func TestConformance(t *testing.T) {
 		NamespaceLabels: map[string]string{
 			metadata.KumaSidecarInjectionAnnotation: metadata.AnnotationEnabled,
 		},
-		ManifestFS: []fs.FS{&conformance.Manifests},
+		ManifestFS:        []fs.FS{&conformance.Manifests},
+		AllowCRDsMismatch: true,
 		SupportedFeatures: sets.New(
 			features.SupportGateway,
 			features.SupportGatewayHTTPListenerIsolation,
