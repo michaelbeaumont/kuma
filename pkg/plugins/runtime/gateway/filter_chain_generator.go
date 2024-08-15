@@ -396,7 +396,11 @@ func (g *TCPFilterChainGenerator) Generate(
 		retryPolicy = policy.(*core_mesh.RetryResource)
 	}
 
-	switch info.Listener.Protocol {
+	protocol := info.Listener.Protocol
+	if info.Listener.CrossMesh {
+		protocol = mesh_proto.MeshGateway_Listener_TLS
+	}
+	switch protocol {
 	case mesh_proto.MeshGateway_Listener_TLS:
 		var filterChains []*envoy_listeners.FilterChainBuilder
 		for _, filter := range info.ListenerHostnames {
@@ -444,10 +448,7 @@ func configureTLS(
 
 	downstream := newDownstreamTypedConfig(alpnProtocols)
 
-	mode := mesh_proto.MeshGateway_TLS_NONE
-	if tls != nil {
-		mode = tls.GetMode()
-	}
+	mode := tls.GetMode()
 
 	switch mode {
 	case mesh_proto.MeshGateway_TLS_PASSTHROUGH:

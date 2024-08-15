@@ -2022,6 +2022,98 @@ conf:
 				},
 			},
 		),
+		Entry("generates clusters with crossMesh",
+			"tcp-route-cross-mesh.yaml", `
+type: Mesh
+name: default
+mtls:
+  enabledBackend: ca-1
+  backends:
+  - name: ca-1
+    type: builtin
+routing:
+  zoneEgress: true
+`, `
+type: MeshGateway
+mesh: default
+name: edge-gateway
+selectors:
+- match:
+    kuma.io/service: gateway-default
+conf:
+  listeners:
+  - port: 8080
+    protocol: TCP
+    crossMesh: true
+    tags:
+      port: http/8080
+`, `
+type: ExternalService
+mesh: default
+name: external-no-protocol-httpbin
+tags:
+  kuma.io/service: external-no-protocol-httpbin
+networking:
+  address: httpbin.com:443
+  tls:
+    enabled: true
+`, `
+type: MeshGatewayRoute
+mesh: default
+name: external-or-api
+selectors:
+- match:
+    kuma.io/service: gateway-default
+conf:
+  tcp:
+    rules:
+    - backends:
+      - destination:
+          kuma.io/service: external-no-protocol-httpbin
+      - destination:
+          kuma.io/service: api-service
+`, `
+type: MeshGatewayRoute
+mesh: default
+name: echo-service
+selectors:
+- match:
+    kuma.io/service: gateway-default
+conf:
+  tcp:
+    rules:
+    - backends:
+      - destination:
+          kuma.io/service: echo-service
+`, `
+type: Timeout
+mesh: default
+name: echo-service
+sources:
+- match:
+    kuma.io/service: gateway-default
+destinations:
+- match:
+    kuma.io/service: '*'
+conf:
+  connect_timeout: 10s
+  http:
+    request_timeout: 10s
+    idle_timeout: 10s
+`,
+			[]WithoutResource{
+				{
+					Resource: meshtimeout_api.MeshTimeoutType,
+					Mesh:     "default",
+					Name:     "mesh-timeout-all-default",
+				},
+				{
+					Resource: meshtimeout_api.MeshTimeoutType,
+					Mesh:     "default",
+					Name:     "mesh-gateways-timeout-all-default",
+				},
+			},
+		),
 		Entry("generates direct cluster for TCP external service",
 			"tcp-route-no-egress.yaml", `
 type: Mesh

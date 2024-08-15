@@ -288,7 +288,12 @@ func (g Generator) generateLDS(ctx xds_context.Context, info GatewayListenerInfo
 
 	protocol := info.Listener.Protocol
 	if info.Listener.CrossMesh {
-		protocol = mesh_proto.MeshGateway_Listener_HTTPS
+		switch protocol {
+		case mesh_proto.MeshGateway_Listener_HTTP:
+			protocol = mesh_proto.MeshGateway_Listener_HTTPS
+		case mesh_proto.MeshGateway_Listener_TCP:
+			protocol = mesh_proto.MeshGateway_Listener_TLS
+		}
 	}
 	res, filterChainBuilders, err := g.FilterChainGenerators.FilterChainGenerators[protocol].Generate(ctx, info)
 	if err != nil {
