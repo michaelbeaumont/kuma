@@ -3,9 +3,9 @@ package generator
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/pkg/errors"
-	"golang.org/x/exp/maps"
 
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	"github.com/kumahq/kuma/pkg/core"
