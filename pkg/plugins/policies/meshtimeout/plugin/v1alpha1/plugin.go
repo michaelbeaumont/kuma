@@ -9,6 +9,7 @@ import (
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	core_plugins "github.com/kumahq/kuma/pkg/core/plugins"
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
+	core_model "github.com/kumahq/kuma/pkg/core/resources/model"
 	core_xds "github.com/kumahq/kuma/pkg/core/xds"
 	xds_types "github.com/kumahq/kuma/pkg/core/xds/types"
 	"github.com/kumahq/kuma/pkg/plugins/policies/core/matchers"
@@ -53,7 +54,7 @@ func (p plugin) Apply(rs *core_xds.ResourceSet, ctx xds_context.Context, proxy *
 	if err := applyToOutbounds(policies.ToRules, listeners.Outbound, proxy.Outbounds, proxy.Dataplane, ctx.Mesh); err != nil {
 		return err
 	}
-	if err := applyToGateway(policies.GatewayRules, listeners.Gateway, clusters.Gateway, routes.Gateway, proxy, ctx.Mesh); err != nil {
+	if err := applyToGateway(ctx.Mesh, proxy, rs, policies.GatewayRules, listeners.Gateway, clusters.Gateway, routes.Gateway); err != nil {
 		return err
 	}
 
@@ -169,13 +170,16 @@ func applyToClusters(
 }
 
 func applyToGateway(
+	meshCtx xds_context.MeshContext,
+	proxy *core_xds.Proxy,
+	rs *core_xds.ResourceSet,
 	gatewayRules core_rules.GatewayRules,
 	gatewayListeners map[core_rules.InboundListener]*envoy_listener.Listener,
 	gatewayClusters map[string]*envoy_cluster.Cluster,
 	gatewayRoutes map[string]*envoy_route.RouteConfiguration,
-	proxy *core_xds.Proxy,
-	meshCtx xds_context.MeshContext,
 ) error {
+	resourcesByOrigin := rs.IndexByOrigin(core_xds.NonMeshExternalService)
+
 	for _, listenerInfo := range gateway_plugin.ExtractGatewayListeners(proxy) {
 		key := core_rules.InboundListener{
 			Address: proxy.Dataplane.Spec.GetNetworking().Address,
@@ -249,6 +253,22 @@ func applyToGateway(
 					); err != nil {
 						return err
 					}
+
+					// This happens when using MeshGatewayRoutes
+					if dest.BackendRef == nil {
+						continue
+					}
+					if realRef := dest.BackendRef.ResourceOrNil(); realRef != nil {
+						resources := resourcesByOrigin[*realRef]
+						if err := applyToRealResource(
+							meshCtx,
+							toRules.ResourceRules,
+							*realRef,
+							resources,
+						); err != nil {
+							return err
+						}
+					}
 				}
 			}
 		}
@@ -282,23 +302,35 @@ func createInboundClusterName(servicePort uint32, listenerPort uint32) string {
 
 func applyToRealResources(rs *core_xds.ResourceSet, rules core_rules.ResourceRules, meshCtx xds_context.MeshContext) error {
 	for uri, resType := range rs.IndexByOrigin() {
-		conf := rules.Compute(uri, meshCtx.Resources)
-		if conf == nil {
-			conf = &core_rules.ResourceRule{Conf: []interface{}{plugin_xds.DefaultTimeoutConf}}
+		if err := applyToRealResource(meshCtx, rules, uri, resType); err != nil {
+			return err
 		}
+	}
+	return nil
+}
 
-		for typ, resources := range resType {
-			switch typ {
-			case envoy_resource.ListenerType:
-				err := configureListeners(resources, conf.Conf[0].(api.Conf))
-				if err != nil {
-					return err
-				}
-			case envoy_resource.ClusterType:
-				err := configureClusters(resources, conf.Conf[0].(api.Conf))
-				if err != nil {
-					return err
-				}
+func applyToRealResource(
+	meshCtx xds_context.MeshContext,
+	rules core_rules.ResourceRules,
+	uri core_model.TypedResourceIdentifier,
+	resourcesByType core_xds.ResourcesByType,
+) error {
+	conf := rules.Compute(uri, meshCtx.Resources)
+	if conf == nil {
+		conf = &core_rules.ResourceRule{Conf: []interface{}{plugin_xds.DefaultTimeoutConf}}
+	}
+
+	for typ, resources := range resourcesByType {
+		switch typ {
+		case envoy_resource.ListenerType:
+			err := configureListeners(resources, conf.Conf[0].(api.Conf))
+			if err != nil {
+				return err
+			}
+		case envoy_resource.ClusterType:
+			err := configureClusters(resources, conf.Conf[0].(api.Conf))
+			if err != nil {
+				return err
 			}
 		}
 	}
