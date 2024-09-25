@@ -9,11 +9,13 @@ import (
 	envoy_resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	common_api "github.com/kumahq/kuma/api/common/v1alpha1"
 	mesh_proto "github.com/kumahq/kuma/api/mesh/v1alpha1"
 	core_plugins "github.com/kumahq/kuma/pkg/core/plugins"
 	core_mesh "github.com/kumahq/kuma/pkg/core/resources/apis/mesh"
+	meshservice_api "github.com/kumahq/kuma/pkg/core/resources/apis/meshservice/api/v1alpha1"
 	core_model "github.com/kumahq/kuma/pkg/core/resources/model"
 	core_xds "github.com/kumahq/kuma/pkg/core/xds"
 	xds_types "github.com/kumahq/kuma/pkg/core/xds/types"
@@ -26,6 +28,7 @@ import (
 	"github.com/kumahq/kuma/pkg/test"
 	"github.com/kumahq/kuma/pkg/test/matchers"
 	"github.com/kumahq/kuma/pkg/test/resources/builders"
+	test_model "github.com/kumahq/kuma/pkg/test/resources/model"
 	"github.com/kumahq/kuma/pkg/test/resources/samples"
 	test_xds "github.com/kumahq/kuma/pkg/test/xds"
 	xds_builders "github.com/kumahq/kuma/pkg/test/xds/builders"
@@ -41,10 +44,8 @@ import (
 var _ = Describe("MeshTimeout", func() {
 	backendMeshServiceIdentifier := core_model.TypedResourceIdentifier{
 		ResourceIdentifier: core_model.ResourceIdentifier{
-			Name:      "backend",
-			Mesh:      "default",
-			Namespace: "backend-ns",
-			Zone:      "zone-1",
+			Name: "backend",
+			Mesh: "default",
 		},
 		ResourceType: "MeshService",
 		SectionName:  "",
@@ -526,6 +527,7 @@ var _ = Describe("MeshTimeout", func() {
 	type gatewayTestCase struct {
 		rules          core_rules.GatewayRules
 		meshhttproutes core_rules.GatewayRules
+		meshservices   []*meshservice_api.MeshServiceResource
 		routes         []*core_mesh.MeshGatewayRouteResource
 	}
 	DescribeTable("should generate proper Envoy config", func(given gatewayTestCase) {
@@ -533,8 +535,15 @@ var _ = Describe("MeshTimeout", func() {
 		resources.MeshLocalResources[core_mesh.MeshGatewayType] = &core_mesh.MeshGatewayResourceList{
 			Items: []*core_mesh.MeshGatewayResource{samples.GatewayResource()},
 		}
-		resources.MeshLocalResources[core_mesh.MeshGatewayRouteType] = &core_mesh.MeshGatewayRouteResourceList{
-			Items: append([]*core_mesh.MeshGatewayRouteResource{samples.BackendGatewayRoute()}, given.routes...),
+		if len(given.routes) > 0 {
+			resources.MeshLocalResources[core_mesh.MeshGatewayRouteType] = &core_mesh.MeshGatewayRouteResourceList{
+				Items: append([]*core_mesh.MeshGatewayRouteResource{samples.BackendGatewayRoute()}, given.routes...),
+			}
+		}
+		if len(given.meshservices) > 0 {
+			resources.MeshLocalResources[meshservice_api.MeshServiceType] = &meshservice_api.MeshServiceResourceList{
+				Items: given.meshservices,
+			}
 		}
 
 		xdsCtx := *xds_builders.Context().
@@ -577,6 +586,7 @@ var _ = Describe("MeshTimeout", func() {
 		Expect(getResourceYaml(generatedResources.ListOf(envoy_resource.ClusterType))).To(matchers.MatchGoldenYAML(filepath.Join("..", "testdata", fmt.Sprintf("%s.gateway.cluster.golden.yaml", name))))
 		Expect(getResourceYaml(generatedResources.ListOf(envoy_resource.RouteType))).To(matchers.MatchGoldenYAML(filepath.Join("..", "testdata", fmt.Sprintf("%s.gateway.route.golden.yaml", name))))
 	}, Entry("basic", gatewayTestCase{
+		routes: []*core_mesh.MeshGatewayRouteResource{samples.BackendGatewayRoute()},
 		rules: core_rules.GatewayRules{
 			FromRules: map[core_rules.InboundListener]core_rules.Rules{
 				{Address: "192.168.0.1", Port: 8080}: {
@@ -616,6 +626,7 @@ var _ = Describe("MeshTimeout", func() {
 			},
 		},
 	}), Entry("no-default-idle-timeout", gatewayTestCase{
+		routes: []*core_mesh.MeshGatewayRouteResource{samples.BackendGatewayRoute()},
 		rules: core_rules.GatewayRules{
 			ToRules: core_rules.GatewayToRules{
 				ByListener: map[core_rules.InboundListener]core_rules.ToRules{
@@ -638,6 +649,7 @@ var _ = Describe("MeshTimeout", func() {
 		},
 	}), Entry("no-route-level-timeouts", gatewayTestCase{
 		routes: []*core_mesh.MeshGatewayRouteResource{
+			samples.BackendGatewayRoute(),
 			builders.GatewayRoute().
 				WithName("sample-gateway-route").
 				WithGateway("sample-gateway").
@@ -661,6 +673,7 @@ var _ = Describe("MeshTimeout", func() {
 			},
 		},
 	}), Entry("route-level-timeouts", gatewayTestCase{
+		routes: []*core_mesh.MeshGatewayRouteResource{samples.BackendGatewayRoute()},
 		meshhttproutes: core_rules.GatewayRules{
 			ToRules: core_rules.GatewayToRules{
 				ByListenerAndHostname: map[core_rules.InboundListenerHostname]core_rules.ToRules{
@@ -723,6 +736,89 @@ var _ = Describe("MeshTimeout", func() {
 								},
 							},
 						}},
+					},
+				},
+			},
+		},
+	}), Entry("real-MeshService-targeted-to-real-MeshService", gatewayTestCase{
+		meshservices: []*meshservice_api.MeshServiceResource{
+			{
+				Meta: &test_model.ResourceMeta{Name: "backend", Mesh: "default"},
+				Spec: &meshservice_api.MeshService{
+					Selector: meshservice_api.Selector{},
+					Ports: []meshservice_api.Port{{
+						Port:        80,
+						TargetPort:  intstr.FromInt(8084),
+						AppProtocol: core_mesh.ProtocolHTTP,
+					}},
+					Identities: []meshservice_api.MeshServiceIdentity{
+						{
+							Type:  meshservice_api.MeshServiceIdentityServiceTagType,
+							Value: "backend",
+						},
+						{
+							Type:  meshservice_api.MeshServiceIdentityServiceTagType,
+							Value: "other-backend",
+						},
+					},
+				},
+				Status: &meshservice_api.MeshServiceStatus{
+					VIPs: []meshservice_api.VIP{{
+						IP: "10.0.0.1",
+					}},
+				},
+			},
+		},
+		meshhttproutes: core_rules.GatewayRules{
+			ToRules: core_rules.GatewayToRules{
+				ByListenerAndHostname: map[core_rules.InboundListenerHostname]core_rules.ToRules{
+					core_rules.NewInboundListenerHostname("192.168.0.1", 8080, "*"): {
+						Rules: core_rules.Rules{{
+							Subset: core_rules.MeshSubset(),
+							Conf: meshhttproute_api.PolicyDefault{
+								Rules: []meshhttproute_api.Rule{{
+									Matches: []meshhttproute_api.Match{{
+										Path: &meshhttproute_api.PathMatch{
+											Type:  meshhttproute_api.Exact,
+											Value: "/",
+										},
+									}},
+									Default: meshhttproute_api.RuleConf{
+										BackendRefs: &[]common_api.BackendRef{{
+											TargetRef: builders.TargetRefService("backend"),
+											Port:      pointer.To(uint32(80)),
+											Weight:    pointer.To(uint(100)),
+										}},
+									},
+								}},
+							},
+							Origin: []core_model.ResourceMeta{
+								&test_model.ResourceMeta{Mesh: "default", Name: "http-route"},
+							},
+							BackendRefOriginIndex: core_rules.BackendRefOriginIndex{
+								meshhttproute_api.HashMatches([]meshhttproute_api.Match{{Path: &meshhttproute_api.PathMatch{Type: meshhttproute_api.Exact, Value: "/"}}}): 0,
+							},
+						}},
+					},
+				},
+			},
+		},
+		rules: core_rules.GatewayRules{
+			ToRules: core_rules.GatewayToRules{
+				ByListener: map[core_rules.InboundListener]core_rules.ToRules{
+					{Address: "192.168.0.1", Port: 8080}: {
+						ResourceRules: map[core_model.TypedResourceIdentifier]core_rules.ResourceRule{
+							backendMeshServiceIdentifier: {
+								Conf: []interface{}{
+									api.Conf{
+										Http: &api.Http{
+											RequestTimeout:    test.ParseDuration("24s"),
+											StreamIdleTimeout: test.ParseDuration("99s"),
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 			},
