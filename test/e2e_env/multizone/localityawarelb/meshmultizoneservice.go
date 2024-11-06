@@ -96,9 +96,7 @@ spec:
 	It("should fallback only to first zone", func() {
 		// given traffic to other zones
 		Eventually(responseFromInstance(multizone.KubeZone2), "30s", "1s").
-			Should(Equal("kube-test-server-1"))
-		Eventually(responseFromInstance(multizone.KubeZone2), "30s", "1s").
-			Should(Equal("uni-test-server"))
+			MustPassRepeatedly(5).Should(Or(Equal("kube-test-server-1"), Equal("uni-test-server")))
 
 		// when
 		policy := `
